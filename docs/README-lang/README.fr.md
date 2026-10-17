@@ -65,6 +65,8 @@ Va sur la [page des versions](https://github.com/okeydw/SoundCloud-iOS/releases/
 
 **Configuration requise :** iOS 15.0 ou plus récent. La compilation n'est pas signée avec un certificat Apple, elle ne s'installe donc qu'avec ces outils.
 
+**Installation :** guide pas à pas [ici](https://docs.getsoundcloud.app/install/ios).
+
 **Pas encore sur iOS :** import, égaliseur, SoundCloud Auto, choix de la sortie audio et mises à jour depuis l'application.
 
 ---

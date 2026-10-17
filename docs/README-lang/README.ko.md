@@ -65,6 +65,8 @@
 
 **요구 사항:** iOS 15.0 이상. Apple 인증서로 서명되지 않은 빌드라서 이 도구들로만 설치할 수 있습니다.
 
+**설치 방법:** 단계별 안내는 [여기](https://docs.getsoundcloud.app/install/ios)에 있습니다.
+
 **아직 iOS에 없는 기능:** 가져오기, 이퀄라이저, SoundCloud Auto, 오디오 출력 선택, 앱 내 업데이트.
 
 ---

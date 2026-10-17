@@ -65,6 +65,8 @@ Reklamsız · Captcha yok · Sansür yok · Rusya'da kullanılabilir
 
 **Gereksinimler:** iOS 15.0 veya daha yeni. Derleme Apple sertifikasıyla imzalı değil, bu yüzden yalnızca bu araçlarla kurulur.
 
+**Nasıl kurulur:** adım adım kılavuz [burada](https://docs.getsoundcloud.app/install/ios).
+
 **iOS'ta henüz yok:** içe aktarma, ekolayzır, SoundCloud Auto, ses çıkışı seçimi ve uygulama içi güncelleme.
 
 ---

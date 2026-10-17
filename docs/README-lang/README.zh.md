@@ -65,6 +65,8 @@
 
 **系统要求：** iOS 15.0 或更高版本。该构建未使用 Apple 证书签名，只能通过这些工具安装。
 
+**安装方法：** 分步教程请看[这里](https://docs.getsoundcloud.app/install/ios)。
+
 **iOS 暂不支持：** 导入、均衡器、SoundCloud Auto、音频输出选择以及应用内更新。
 
 ---
