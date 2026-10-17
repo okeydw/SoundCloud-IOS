@@ -1,0 +1,76 @@
+name: SoundCloud
+options:
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    MARKETING_VERSION: "0.4.5"
+    CURRENT_PROJECT_VERSION: "10"
+targets:
+  SoundCloud:
+    type: application
+    platform: iOS
+    sources:
+      - SoundCloud
+    scheme: {}
+    info:
+      path: SoundCloud/Info.plist
+      properties:
+        CFBundleDisplayName: SoundCloud
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UIBackgroundModes:
+          - audio
+        UIViewControllerBasedStatusBarAppearance: false
+        UIStatusBarStyle: UIStatusBarStyleLightContent
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIRequiresFullScreen: true
+        CADisableMinimumFrameDurationOnPhone: true
+        ITSAppUsesNonExemptEncryption: false
+        NSCameraUsageDescription: The camera is used to scan sign-in QR codes.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.scd.ios
+            CFBundleURLSchemes:
+              - scd
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.scd.ios
+        PRODUCT_NAME: SoundCloud
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.0"
+        ENABLE_BITCODE: NO
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGN_IDENTITY: ""
+        FRAMEWORK_SEARCH_PATHS:
+          - $(inherited)
+          - $(SRCROOT)/../ui/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)
+        OTHER_LDFLAGS:
+          - $(inherited)
+          - -framework
+          - SoundCloudUi
+          - -framework
+          - AVFoundation
+          - -framework
+          - MediaPlayer
+          - -framework
+          - CoreImage
+          - -framework
+          - Metal
+          - -lc++
+    preBuildScripts:
+      - name: Build Kotlin framework
+        basedOnDependencyAnalysis: false
+        script: |
+          cd "$SRCROOT/.."
+          ./gradlew :ui:embedAndSignAppleFrameworkForXcode

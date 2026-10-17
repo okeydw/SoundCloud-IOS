@@ -1,0 +1,109 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  ios:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Tools
+        run: |
+          chmod +x gradlew
+          brew install xcodegen ldid
+
+      - name: Check tag matches versionName
+        run: |
+          VERSION="$(grep -m1 'val appVersionName' app/build.gradle.kts | sed -E 's/.*"(.*)".*/\1/')"
+          TAG="${GITHUB_REF_NAME#v}"
+          if [ "$VERSION" != "$TAG" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match versionName $VERSION"
+            exit 1
+          fi
+
+      - name: Generate Xcode project
+        working-directory: iosApp
+        run: xcodegen generate
+
+      - name: Build app
+        run: |
+          set -o pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          CODE="$(grep -m1 'val appVersionCode' app/build.gradle.kts | grep -o '[0-9][0-9]*')"
+          test -n "$CODE"
+          xcodebuild \
+            -project iosApp/SoundCloud.xcodeproj \
+            -scheme SoundCloud \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/ios \
+            MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$CODE" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee xcode-out.log | grep -E "error|warning: unable|BUILD" || true
+          test -d build/ios/Build/Products/Release-iphoneos/SoundCloud.app
+
+      - name: Package IPA and TIPA
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          APP=build/ios/Build/Products/Release-iphoneos/SoundCloud.app
+          ldid -SiosApp/SoundCloud.entitlements "$APP/SoundCloud"
+          rm -rf Payload dist && mkdir Payload dist && cp -R "$APP" Payload/
+          zip -qry "dist/SoundCloud-iOS-v$VERSION.ipa" Payload
+          cp "dist/SoundCloud-iOS-v$VERSION.ipa" "dist/SoundCloud-iOS-v$VERSION.tipa"
+          cd dist && shasum -a 256 *.ipa *.tipa > SHA256SUMS.txt && cd ..
+          ls -la dist
+
+      - name: Release notes
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v v="$VERSION" '
+            $0 ~ "^## \\[" v "\\]" {p=1; print; next}
+            p && /^## \[/ {exit}
+            p {print}
+          ' CHANGELOG.md > release_notes.md
+          if [ ! -s release_notes.md ]; then echo "Release $GITHUB_REF_NAME" > release_notes.md; fi
+          {
+            echo ""
+            echo "---"
+            echo ""
+            echo "**Что качать:**"
+            echo ""
+            echo "- \`SoundCloud-iOS-v$VERSION.tipa\` - ставится через TrollStore"
+            echo "- \`SoundCloud-iOS-v$VERSION.ipa\` - ставится через AltStore, SideStore или Sideloadly"
+            echo ""
+            echo "Сборка не подписана сертификатом Apple, нужен iOS 15 или новее."
+            echo ""
+            echo "**SHA-256:**"
+            echo '```'
+            cat dist/SHA256SUMS.txt
+            echo '```'
+          } >> release_notes.md
+
+      - name: Report build errors
+        if: failure()
+        run: |
+          grep -E "(^e: |error:|What went wrong|FAILED)" xcode-out.log | head -60 || true
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.ipa
+            dist/*.tipa
+            dist/SHA256SUMS.txt
+          body_path: release_notes.md
+          fail_on_unmatched_files: true
