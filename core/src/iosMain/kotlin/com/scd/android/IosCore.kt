@@ -22,7 +22,10 @@ object IosCore {
         Api.waveBackup = LocalRadioBackup
         SessionGuard.init()
         DurationCache.init(IosKvStore("durations"))
+        ServedQuality.init(IosKvStore("served_quality"))
+        SpeedPitch.manualPitchSupported = false
         Downloads.init()
+        ExternalAccounts.init()
         FeedCache.init()
         LikedArtists.init(IosKvStore("liked_artists"))
         Likes.init(IosKvStore("liked_tracks"))
@@ -40,5 +43,6 @@ object IosCore {
             ScAnon.warmUp()
         }
         AppScope.scope.launch { runCatching { Endpoints.probeAll() } }
+        IosNet.start()
     }
 }

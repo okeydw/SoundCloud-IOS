@@ -97,13 +97,8 @@ fun LiquidPillDock(
     val drag = remember { Animatable(0f) }
     val playing = NowPlaying.isPlaying
     val shape = RoundedCornerShape(24.dp)
-    val count = controller?.itemCount ?: 0
-    val peekNext = remember(urn, count) {
-        controller?.let { c -> c.nextIndex.takeIf { it in 0 until count }?.let { c.trackAt(it) } }
-    }
-    val peekPrev = remember(urn, count) {
-        controller?.let { c -> c.previousIndex.takeIf { it in 0 until count }?.let { c.trackAt(it) } }
-    }
+    val preview = rememberQueuePreview(controller)
+    val swipe = rememberTrackSwipeFade(preview)
     val spin = if (playing && fx.idle) {
         rememberInfiniteTransition(label = "dockSpin").animateFloat(0f, 360f, infiniteRepeatable(tween(6000, easing = LinearEasing)), label = "spin")
     } else null
@@ -126,25 +121,29 @@ fun LiquidPillDock(
                 )
             }
             .dockGlass(shape, haze)
-            .pointerInput(urn) {
+            .pointerInput(urn, preview) {
                 val threshold = with(density) { 80.dp.toPx() }
                 var total = Offset.Zero
                 detectDragGestures(
-                    onDragStart = { total = Offset.Zero },
+                    onDragStart = { total = Offset.Zero; swipe.begin(preview, threshold) },
                     onDragEnd = {
-                        val c = controller
-                        when {
-                            total.y < -threshold / 2 && abs(total.y) > abs(total.x) -> onOpen()
-                            total.x < -threshold -> c?.next()
-                            total.x > threshold -> c?.previous()
-                        }
+                        if (total.y < -threshold / 2 && abs(total.y) > abs(total.x)) {
+                            swipe.cancel()
+                            onOpen()
+                        } else swipe.finish(controller)
                         scope.launch { drag.animateTo(0f, tween(380, easing = EaseApple)) }
                     },
-                    onDragCancel = { scope.launch { drag.animateTo(0f) } },
+                    onDragCancel = {
+                        swipe.cancel()
+                        scope.launch { drag.animateTo(0f, tween(380, easing = EaseApple)) }
+                    },
                     onDrag = { change, amount ->
                         change.consume()
                         total += amount
-                        if (abs(total.x) > abs(total.y)) scope.launch { drag.snapTo(total.x * 0.6f) }
+                        if (abs(total.x) > abs(total.y)) {
+                            swipe.drag(amount.x)
+                            scope.launch { drag.snapTo(swipe.distance * 0.6f) }
+                        }
                     },
                 )
             }
@@ -159,34 +158,24 @@ fun LiquidPillDock(
             Modifier.fillMaxSize().padding(start = 11.dp, end = 11.dp, bottom = 3.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.size(46.dp), contentAlignment = Alignment.Center) {
-                Artwork(NowPlaying.artworkUri, Modifier.size(46.dp), corner = 13.dp)
-                if (spin != null) {
-                    Box(
-                        Modifier.size(46.dp).drawBehind {
+            FadingTrack(swipe, preview.current, Modifier.weight(1f)) { md ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(46.dp), contentAlignment = Alignment.Center) {
+                        Artwork(md.artModel("t120x120"), Modifier.size(46.dp), corner = 13.dp)
+                        if (spin != null) Box(Modifier.size(46.dp).drawBehind {
                             rotate(spin.value) {
                                 drawRoundRect(
                                     Brush.sweepGradient(listOf(Color.Transparent, Color.White.copy(alpha = 0.55f), Color.Transparent, p.accent.copy(alpha = 0.6f), Color.Transparent)),
-                                    cornerRadius = CornerRadius(13.dp.toPx()),
-                                    style = Stroke(width = 1.5.dp.toPx()),
+                                    cornerRadius = CornerRadius(13.dp.toPx()), style = Stroke(width = 1.5.dp.toPx()),
                                 )
                             }
-                        },
-                    )
-                }
-            }
-            Spacer(Modifier.width(12.dp))
-            Box(Modifier.weight(1f)) {
-                val fade = with(density) { 48.dp.toPx() }
-                Column(Modifier.graphicsLayer { alpha = 1f - (abs(drag.value) / fade).coerceIn(0f, 1f) }) {
-                    Text(NowPlaying.title, style = GlassType.rowTitle, color = p.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(NowPlaying.artist, style = GlassType.small, color = p.text2, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                peekNext?.let { md ->
-                    PeekLine(md, stringResource(Res.string.cd_next), Modifier.graphicsLayer { alpha = (-drag.value / fade).coerceIn(0f, 1f) })
-                }
-                peekPrev?.let { md ->
-                    PeekLine(md, stringResource(Res.string.cd_prev), Modifier.graphicsLayer { alpha = (drag.value / fade).coerceIn(0f, 1f) })
+                        })
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(md.title, style = GlassType.rowTitle, color = p.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(md.artistLinks().joinToString(", ") { it.name }, style = GlassType.small, color = p.text2, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
             }
             val liked = Likes.isLiked(urn)
@@ -298,11 +287,11 @@ fun FloatingTabDock(
 }
 
 @Composable
-private fun PeekLine(md: Track, label: String, modifier: Modifier) {
+internal fun PeekLine(md: Track, modifier: Modifier) {
     val p = LocalGlass.current
     Column(modifier) {
         Text(
-            label.uppercase() + " · " + md.title,
+            md.title,
             style = GlassType.rowTitle,
             color = p.text,
             maxLines = 1,

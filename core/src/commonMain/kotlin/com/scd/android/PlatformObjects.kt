@@ -1,13 +1,5 @@
 package com.scd.android
 
-data class EqInfo(
-    val bands: Int,
-    val minLevel: Int,
-    val maxLevel: Int,
-    val centerFreqsHz: List<Int>,
-    val presets: List<String>,
-)
-
 data class OutputDevice(val key: String, val kind: String, val name: String)
 
 enum class UpdateState { Idle, Downloading, Ready, Failed, ForeignKey, NeedsPermission }
@@ -59,12 +51,6 @@ expect object StreamInfo {
 
 expect object BlurSupport {
     val available: Boolean
-}
-
-expect object AudioFx {
-    var info: EqInfo?
-    fun levels(preset: Int): List<Int>
-    fun parseBands(csv: String): List<Int>
 }
 
 expect object AudioOutput {

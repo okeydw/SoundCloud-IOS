@@ -1,0 +1,4 @@
+"widget_name" = "Lecteur";
+"widget_desc" = "Titre en cours et commandes";
+"widget_idle" = "Rien en lecture";
+"widget_open" = "Touchez pour ouvrir SoundCloud";

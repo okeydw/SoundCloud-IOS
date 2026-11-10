@@ -41,13 +41,15 @@ jobs:
             -destination 'generic/platform=iOS' \
             -derivedDataPath build/ios \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            build 2>&1 | tee xcode-out.log | grep -E "error|warning: unable|BUILD" || true
-          test -d build/ios/Build/Products/Release-iphoneos/SoundCloud.app
+            build 2>&1 | tee xcode-out.log
+          test -f build/ios/Build/Products/Release-iphoneos/SoundCloud.app/SoundCloud
+          test -f build/ios/Build/Products/Release-iphoneos/SoundCloud.app/PlugIns/SoundCloudWidget.appex/SoundCloudWidget
 
       - name: Package IPA and TIPA
         run: |
           VERSION=$(./gradlew -q :app:printVersionName | tail -n 1)
           APP=build/ios/Build/Products/Release-iphoneos/SoundCloud.app
+          ldid -SiosApp/SoundCloudWidget.entitlements "$APP/PlugIns/SoundCloudWidget.appex/SoundCloudWidget"
           ldid -SiosApp/SoundCloud.entitlements "$APP/SoundCloud"
           rm -rf Payload && mkdir Payload && cp -R "$APP" Payload/
           zip -qry "SoundCloud-iOS-$VERSION.ipa" Payload

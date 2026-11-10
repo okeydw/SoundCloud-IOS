@@ -32,6 +32,7 @@ import com.scd.android.res.Res
 import com.scd.android.res.allStringResources
 import com.scd.android.res.qr_use_scanner
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import platform.Foundation.NSCachesDirectory
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
 import platform.Foundation.NSUserDomainMask
@@ -51,6 +52,7 @@ fun MainViewController(): UIViewController {
     installUi()
     val vc = ComposeUIViewController { IosRoot() }
     root = vc
+    IosFiles.root = vc
     return vc
 }
 
@@ -74,6 +76,7 @@ private fun installUi() {
         UIApplication.sharedApplication.setStatusBarStyle(if (dark) UIStatusBarStyleLightContent else UIStatusBarStyleDarkContent, animated = true)
     }
     PlayerHub.player = player
+    IosWidgetBridge.start()
 }
 
 @Composable
@@ -111,6 +114,17 @@ private fun ToastHost(modifier: Modifier) {
 
 object IosLinks {
     fun open(url: String) {
+        if (url.startsWith("scd://widget/")) {
+            IosWidgetBridge.command(url.substringAfter("scd://widget/").substringBefore('?').substringBefore('#'))
+            return
+        }
+        if (SpotifyPkce.isCallback(url)) {
+            AppScope.scope.launch {
+                runCatching { SpotifyPkce.complete(url) }
+                    .onFailure { Logs.add("import", "Spotify sign-in failed: "+it::class.simpleName) }
+            }
+            return
+        }
         if (url.startsWith("scd:")) {
             val parsed = QrLink.parse(url)
             when {

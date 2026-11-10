@@ -13,7 +13,10 @@ object NetMonitor {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
         runCatching {
             cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
-                override fun onAvailable(network: android.net.Network) = Health.kick()
+                override fun onAvailable(network: android.net.Network) {
+                    Health.kick()
+                    ScAnon.onNetworkChanged()
+                }
 
                 override fun onLost(network: android.net.Network) = Health.kick()
             })

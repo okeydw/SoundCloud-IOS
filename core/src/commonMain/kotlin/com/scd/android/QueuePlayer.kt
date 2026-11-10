@@ -26,6 +26,7 @@ interface QueuePlayer {
     val durationMs: Long
     val failed: Boolean
     val idle: Boolean
+    val ready: Boolean
     var shuffle: Boolean
     var repeatMode: Int
     fun setTracks(tracks: List<Track>, index: Int, positionMs: Long = 0L)

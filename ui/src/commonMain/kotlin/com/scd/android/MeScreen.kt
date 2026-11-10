@@ -167,10 +167,9 @@ fun MeScreen(offline: Boolean, onSignOut: () -> Unit, guest: Boolean) {
                         if (tab != MeTab.Offline && fullList == null) Spinner() else EmptyState(Res.drawable.ic_search, stringResource(Res.string.local_search_empty))
                     }
                 }
-                if (!filter.active && tab != MeTab.Offline && pager.hasMore && list.isNotEmpty()) {
+                if (!filter.active && tab != MeTab.Offline && (pager.hasMore || pager.error != null)) {
                     item(key = "more:${tab.name}") {
-                        LaunchedEffect(list.size) { pager.loadMore() }
-                        Spinner()
+                        TrackPageFooter(pager)
                     }
                 }
                 if (list.isEmpty()) {
@@ -427,8 +426,7 @@ fun DislikedDetail() {
         })
         if (pager.hasMore && shown.isNotEmpty()) {
             item(key = "more") {
-                LaunchedEffect(pager.items.size) { pager.loadMore() }
-                Spinner()
+                TrackPageFooter(pager)
             }
         }
         if (shown.isEmpty()) {

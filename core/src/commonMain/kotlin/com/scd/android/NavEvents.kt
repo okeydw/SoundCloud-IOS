@@ -50,7 +50,7 @@ object NavEvents {
     }
 
     fun openScUser(scId: String) {
-        userUrn = "soundcloud:users:$scId"
+        CatalogRepo.scUserUrn(scId)?.let { userUrn = it }
     }
 
     fun consumeRoute() {

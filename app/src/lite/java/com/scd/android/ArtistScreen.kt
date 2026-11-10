@@ -49,36 +49,30 @@ fun ArtistScreen(
     onOpenPlaylist: (Playlist) -> Unit,
     offline: Boolean = false,
 ) {
-    var artist by remember(urn) { mutableStateOf<Artist?>(null) }
-    var tracks by remember(urn) { mutableStateOf<List<Track>>(emptyList()) }
-    var playlists by remember(urn) { mutableStateOf<List<Playlist>>(emptyList()) }
-    var loading by remember(urn) { mutableStateOf(true) }
+    val profile = remember(urn, offline) { ArtistProfileState(urn) }
     var radioBusy by remember(urn) { mutableStateOf(false) }
     var blocking by remember(urn) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    LaunchedEffect(urn) { Follows.load(urn) }
-    LaunchedEffect(urn) { if (!offline) WebProfiles.load(urn) }
+    val pager = remember(urn, offline) {
+        TrackPager(scope) { page, fresh ->
+            if (fresh) emptyList<Track>() to false
+            else if (offline) (if (page == 0) Downloads.tracks().filter { it.user?.urn == urn } else emptyList()) to false
+            else Library.artistPage(urn, page)
+        }
+    }
+    val tracks = pager.items
+    val artist = profile.artist ?: tracks.firstOrNull { it.user?.urn == urn }?.user?.let {
+        Artist(urn = urn, username = it.username, avatar_url = it.avatar_url)
+    }
+    val playlists = profile.playlists
+    LaunchedEffect(pager) { pager.refresh() }
+
+    LaunchedEffect(urn, offline) { if (!offline) Follows.load(urn) }
     val context = LocalContext.current
 
     BackHandler(onBack = onBack)
 
-    LaunchedEffect(urn) {
-        loading = true
-        if (offline) {
-            val downloaded = Downloads.tracks().filter { it.user?.urn == urn }
-            tracks = downloaded
-            val u = downloaded.firstOrNull()?.user
-            if (u != null) {
-                artist = Artist(urn = urn, username = u.username, avatar_url = u.avatar_url)
-            }
-            playlists = emptyList()
-        } else {
-            runCatching { Api.user(urn) }.onSuccess { artist = it }
-            runCatching { Api.userTracks(urn) }.onSuccess { tracks = it.collection }
-            runCatching { Api.userPlaylists(urn) }.onSuccess { playlists = it.collection }
-        }
-        loading = false
-    }
+    LaunchedEffect(profile) { if (!offline) profile.load() }
 
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -161,13 +155,14 @@ fun ArtistScreen(
             }
         }
 
-        if (loading && tracks.isEmpty()) {
+        if (profile.loading && tracks.isEmpty()) {
             Row(Modifier.fillMaxWidth().padding(32.dp), horizontalArrangement = Arrangement.Center) {
                 CircularProgressIndicator()
             }
             return@Column
         }
 
+        if (!offline) ArtistProfileStatus(profile) { scope.launch { profile.load() } }
         LazyColumn(Modifier.fillMaxSize()) {
             item {
                 Row(
@@ -201,7 +196,7 @@ fun ArtistScreen(
             }
 
             val catalog = if (offline) null else CatalogRepo.findCatalogFor(urn, tracks)
-            val webs = WebProfiles.of(urn)
+            val webs = profile.links
             if (catalog != null || webs.isNotEmpty()) {
                 item {
                     Row(
@@ -269,6 +264,9 @@ fun ArtistScreen(
                 items(tracks.distinctBy { it.urn }, key = { "t:" + it.urn }) { track ->
                     TrackRow(track = track, onClick = { onPlay(tracks, track) })
                 }
+            }
+            if (pager.hasMore || pager.error != null || pager.loading) {
+                item(key = "tracks:more") { TrackPageFooter(pager) }
             }
         }
     }

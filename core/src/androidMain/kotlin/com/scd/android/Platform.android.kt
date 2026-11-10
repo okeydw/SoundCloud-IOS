@@ -2,7 +2,10 @@ package com.scd.android
 
 actual fun nowMillis(): Long = System.currentTimeMillis()
 
-actual fun clockText(ms: Long): String = android.text.format.DateFormat.format("HH:mm:ss", ms).toString()
+private val clockFormat = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")
+
+actual fun clockText(ms: Long): String =
+    java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.systemDefault()).format(clockFormat)
 
 actual fun fileExists(path: String): Boolean = java.io.File(path).exists()
 

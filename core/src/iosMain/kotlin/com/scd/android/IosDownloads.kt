@@ -3,6 +3,9 @@ package com.scd.android
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -23,7 +26,9 @@ actual object Downloads {
     private val index = LinkedHashMap<String, Track>()
     private val lock = Any()
     private val mutex = Mutex()
+    private val qualityStore by lazy { IosKvStore("download_quality") }
     private var job: Job? = null
+    private var upgradeJob: Job? = null
     private val pending = ArrayDeque<Pair<Track, String?>>()
 
     private val dir: String get() = Dirs.sub("downloads")
@@ -55,9 +60,13 @@ actual object Downloads {
 
     actual fun tracks(): List<Track> = locked(lock) { index.values.toList() }.reversed()
 
-    actual fun cachedQuality(urn: String): String? = null
+    actual fun cachedQuality(urn: String): String? {
+        if (!isDownloaded(urn)) return null
+        val tier = Quality.parse(qualityStore.getString(urn, null)) ?: return null
+        return "${tier.badge} ${audioPath(urn).substringAfterLast('.').uppercase()}"
+    }
 
-    actual suspend fun quality(urn: String): String? = null
+    actual suspend fun quality(urn: String): String? = cachedQuality(urn)
 
     actual fun enqueue(
         context: PlatformContext,
@@ -95,8 +104,14 @@ actual object Downloads {
     }
 
     private suspend fun fetch(track: Track): Boolean = withContext(IoDispatcher) {
-        val body = StreamFiles.cached(track.urn)?.let { Fs.readAtomic(it) } ?: StreamFiles.bytes(track) ?: return@withContext false
-        Fs.writeAtomic("$dir/${base(track.urn)}.${StreamFiles.extFor(body)}", body)
+        val wanted = QualityLadder.downloadWanted()
+        val cached = StreamFiles.cached(track.urn)?.let { Fs.readAtomic(it) }
+            ?.takeIf { StreamFiles.accepts(track, it) }?.let { QualityAudio(it, ServedQuality.of(track.urn) ?: Quality.SQ) }
+        val audio = if (cached != null && cached.tier.rank >= wanted.rank) cached else {
+            val fresh = StreamFiles.audio(track, wanted)
+            listOfNotNull(cached, fresh).maxByOrNull { it.tier.rank }
+        } ?: return@withContext false
+        storeAudio(track.urn, audio)
         track.artwork_url?.let { art ->
             runCatching {
                 val big = Api.artworkUrl(art) ?: return@runCatching
@@ -108,7 +123,15 @@ actual object Downloads {
         true
     }
 
+    private fun storeAudio(urn: String, audio: QualityAudio) {
+        val target = "$dir/${base(urn)}.${StreamFiles.extFor(audio.bytes)}"
+        Fs.writeAtomic(target, audio.bytes)
+        exts.map { "$dir/${base(urn)}.$it" }.filter { it != target }.forEach { Fs.delete(it) }
+        qualityStore.edit().putString(urn, audio.tier.label).apply()
+    }
+
     actual fun cancelList(context: PlatformContext, key: String) {
+        if (key == UPGRADE_KEY) upgradeJob?.cancel()
         val dropped = locked(pending) {
             val gone = pending.filter { it.second == key }.map { it.first.urn }
             pending.removeAll { it.second == key }
@@ -120,11 +143,12 @@ actual object Downloads {
 
     actual suspend fun remove(urn: String) = removeAll(listOf(urn))
 
-    actual suspend fun removeAll(urns: Collection<String>) {
+    actual suspend fun removeAll(urns: Collection<String>) = mutex.withLock {
         withContext(IoDispatcher) {
             urns.forEach { u ->
                 exts.forEach { e -> Fs.delete("$dir/${base(u)}.$e") }
                 Fs.delete(artFile(u))
+                qualityStore.edit().remove(u).apply()
                 locked(lock) { index.remove(u) }
             }
             save()
@@ -136,7 +160,52 @@ actual object Downloads {
 
     actual fun localPath(urn: String): String? = audioPath(urn).takeIf { isDownloaded(urn) }
 
-    actual fun upgradeAll(context: PlatformContext, onResult: (Int) -> Unit) = onResult(0)
+    actual fun upgradeAll(context: PlatformContext, onResult: (Int) -> Unit) {
+        if (Prefs.offline || upgradeJob?.isActive == true) return
+        val wanted = QualityLadder.allowed(QualityLadder.upgradeWanted())
+        val targets = tracks().filter {
+            val known = cachedQuality(it.urn) ?: return@filter false
+            isScUrn(it.urn) && Quality.fromLabel(known).rank < wanted.rank
+        }
+        onResult(targets.size)
+        if (targets.isEmpty()) return
+        activeLists = activeLists + UPGRADE_KEY
+        upgradeJob = AppScope.scope.launch {
+            try {
+                for (track in targets) {
+                    currentCoroutineContext().ensureActive()
+                    if (Prefs.offline) break
+                    mutex.withLock {
+                        if (!isDownloaded(track.urn)) return@withLock
+                        inProgress = inProgress + track.urn
+                        try {
+                            withContext(IoDispatcher) {
+                                val known = cachedQuality(track.urn) ?: return@withContext
+                                val current = Quality.fromLabel(known)
+                                if (current.rank >= wanted.rank) return@withContext
+                                val audio = TrackTurns.withTurn(TrackTurns.Priority.BULK) {
+                                    StreamFiles.fetchFor(track, above = current, wanted = wanted)
+                                } ?: return@withContext
+                                currentCoroutineContext().ensureActive()
+                                if (audio.tier.rank > current.rank) {
+                                    storeAudio(track.urn, audio)
+                                    Logs.add("download", "${track.title.take(30)}: ${current.badge} → ${audio.tier.badge}")
+                                }
+                            }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Logs.add("download", "upgrade ${track.urn}: ${e::class.simpleName}")
+                        } finally {
+                            inProgress = inProgress - track.urn
+                        }
+                    }
+                }
+            } finally {
+                activeLists = activeLists - UPGRADE_KEY
+            }
+        }
+    }
 
     actual suspend fun backfillArt() {}
 }
@@ -149,9 +218,10 @@ object StreamPicker {
     }.getOrDefault(false)
 
     fun candidates(track: Track): List<String> = buildList {
-        if (Prefs.star && Prefs.hqStreaming) add(Api.streamUrl(track.urn, hq = true, goPlus = true))
-        add(Api.streamUrl(track.urn, goPlus = track.goPlus))
-        Endpoints.streamHosts.forEach { add("$it/stream/${formEncode(track.urn)}") }
+        val tail = "/stream/${formEncode(track.urn)}"
+        if (Prefs.star && Prefs.hqStreaming) Endpoints.serviceHosts("stream-star").forEach { add("$it$tail?hq=true") }
+        if (Prefs.star && track.goPlus) Endpoints.serviceHosts("stream-star").forEach { add("$it$tail") }
+        Endpoints.serviceHosts("stream").forEach { add("$it$tail") }
     }.distinct()
 
     suspend fun pick(track: Track): String? {

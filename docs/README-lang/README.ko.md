@@ -186,6 +186,14 @@ QR 로그인 프로토콜: 데스크톱 저장소의 [qr-link-protocol.md](https
 ---
 
 
+## 통계
+
+<p align="center">
+<img src="https://zxcloli666.github.io/download-history/okeydw_SoundCloud-iOS.svg" alt="다운로드 기록" />
+</p>
+
+---
+
 ## 라이선스
 
 MIT. 자세한 내용은 [LICENSE](../../LICENSE) 파일을 참고하세요.

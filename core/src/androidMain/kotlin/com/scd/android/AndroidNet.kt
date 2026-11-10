@@ -52,28 +52,9 @@ fun Api.initHttp(context: Context) {
             val req = chain.request()
             val res = chain.proceed(req)
             val host = req.url.host
-            val path = req.url.encodedPath
-            val isApi = host in Endpoints.apiHostnames
-            val maxAge = when {
-                path.startsWith("/auth") || path.startsWith("/health") ||
-                    path.startsWith("/recommendations") -> null
-                host in Endpoints.imageHostnames || host.endsWith("sndcdn.com") -> 604800
-                isApi && (
-                    path.contains("/playlists") ||
-                        path.startsWith("/users/") ||
-                        path.startsWith("/me/likes") ||
-                        path.startsWith("/me/playlists")
-                    ) -> 604800
-                isApi && (path.startsWith("/tracks") || path.startsWith("/history")) -> 3600
-                isApi -> 60
-                else -> null
-            }
-            if (req.method == "GET" && maxAge != null && res.code == 200) {
-                res.newBuilder()
-                    .removeHeader("Pragma")
-                    .header("Cache-Control", "public, max-age=$maxAge")
-                    .build()
-            } else res
+            val isApi = Endpoints.trustedHost(host) && (host.startsWith("api.") || host.startsWith("api-star."))
+            val isImage = host in Endpoints.imageHostnames || host.endsWith(".sndcdn.com")
+            AndroidApiCache.response(res, isApi, isImage)
         }
         .build()
     Http.engine = OkHttpEngine()

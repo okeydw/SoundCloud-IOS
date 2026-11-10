@@ -33,7 +33,7 @@ object Endpoints {
     const val DIRECT = "direct"
     private lateinit var sp: KvStore
 
-    private const val RELAY_ZONE = "relay.scnative.space"
+    private const val RELAY_ZONE = "relay.scnative.dev"
     private const val MAX_RELAY = 16
     private val DEFAULT_RELAYS = listOf("r1", "r2")
 
@@ -44,17 +44,17 @@ object Endpoints {
     private fun relayHosts(service: String) = relayNodes.map { "https://$service.$it.$RELAY_ZONE" }
 
     val apiHosts: List<String>
-        get() = listOf("https://api.scnative.space") + relayHosts("api")
+        get() = listOf("https://api.scnative.dev") + relayHosts("api")
 
     val streamHosts: List<String>
-        get() = listOf("https://stream.scnative.space") + relayHosts("stream")
+        get() = listOf("https://stream.scnative.dev") + relayHosts("stream")
 
     val imageHosts: List<String>
-        get() = listOf("https://images.scnative.space") + relayHosts("images")
+        get() = listOf("https://images.scnative.dev") + relayHosts("images")
 
     fun storageRelays(star: Boolean): List<String> = relayHosts(if (star) "storage-star" else "storage")
 
-    private const val TRUSTED_ZONE = "scnative.space"
+    private const val TRUSTED_ZONE = "scnative.dev"
 
     fun trustedHost(host: String): Boolean {
         val h = host.lowercase().trimEnd('.')
@@ -69,19 +69,24 @@ object Endpoints {
         return trustedHost(authority.substringBefore(':'))
     }
 
-    const val API_STAR = "https://api-star.scnative.space"
-    const val STREAM_STAR = "https://stream-star.scnative.space"
-    const val STORAGE_STAR = "https://storage-star.scnative.space"
-    const val STORAGE_MAIN = "https://storage.scnative.space"
+    val API_STAR get() = serviceHosts("api-star").first()
+    val STREAM_STAR get() = serviceHosts("stream-star").first()
+    val STORAGE_STAR get() = serviceHosts("storage-star").first()
+    val STORAGE_MAIN get() = serviceHosts("storage").first()
 
     val starApiActive: Boolean get() = Prefs.star && Prefs.apiStar
 
+    fun serviceHosts(service: String): List<String> =
+        (listOf(activeNode) + relayNodes).distinct().filter { it.matches(Regex("r\\d{1,2}")) }
+            .map { "https://$service.$it.$RELAY_ZONE" }
+            .ifEmpty { DEFAULT_RELAYS.map { "https://$service.$it.$RELAY_ZONE" } }
+
+    fun isStarApi(base: String): Boolean = base.startsWith("https://api-star.")
+
     fun hostsFor(path: String): List<String> {
-        val hosts = apiHosts
-        val n = hosts.size
-        val main = (0 until n).map { hosts[(apiIndex + it) % n] }
+        val main = serviceHosts("api")
         if (path.startsWith("/auth") || !starApiActive) return main
-        return listOf(API_STAR) + main
+        return serviceHosts("api-star") + main
     }
 
     @Volatile
@@ -123,7 +128,7 @@ object Endpoints {
     val activeNode: String get() = nodes.getOrElse(apiIndex) { DIRECT }
 
     fun hostOf(node: String): String =
-        if (node == DIRECT) "api.scnative.space" else "api.$node.$RELAY_ZONE"
+        if (node == DIRECT) "api.scnative.dev" else "api.$node.$RELAY_ZONE"
 
     private fun applyNode(node: String) {
         val i = nodes.indexOf(node)
@@ -234,9 +239,9 @@ object Endpoints {
         }
     }
 
-    val apiBase get() = apiHosts.let { it[apiIndex.coerceIn(0, it.lastIndex)] }
-    val streamBase get() = streamHosts.let { it[streamIndex.coerceIn(0, it.lastIndex)] }
-    val imageBase get() = imageHosts.let { it[imageIndex.coerceIn(0, it.lastIndex)] }
+    val apiBase get() = apiHosts.let { it[apiIndex.coerceIn(1, it.lastIndex)] }
+    val streamBase get() = streamHosts.let { it[streamIndex.coerceIn(1, it.lastIndex)] }
+    val imageBase get() = imageHosts.let { it[imageIndex.coerceIn(1, it.lastIndex)] }
 
     val apiHostnames: List<String> get() = (apiHosts + API_STAR).map { it.removePrefix("https://") }
     val imageHostnames: List<String> get() = imageHosts.map { it.removePrefix("https://") }
@@ -258,9 +263,9 @@ object Endpoints {
     }
 
     private val TOPOLOGY_URLS = listOf(
-        "https://health.scnative.space/topology",
-        "https://health.r1.relay.scnative.space/topology",
-        "https://health.r2.relay.scnative.space/topology",
+        "https://health.scnative.dev/topology",
+        "https://health.r1.relay.scnative.dev/topology",
+        "https://health.r2.relay.scnative.dev/topology",
     )
 
     private suspend fun topologyRelays(): List<String>? = withContext(IoDispatcher) {

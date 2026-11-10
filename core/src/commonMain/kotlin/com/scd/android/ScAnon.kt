@@ -1,6 +1,7 @@
 package com.scd.android
 
 import kotlin.concurrent.Volatile
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -89,20 +90,36 @@ object ScAnon {
     @Volatile
     private var warmFailedAt = 0L
 
+    @Volatile
+    private var netGen = 0
+
+    fun onNetworkChanged() {
+        netGen++
+        warmFailedAt = 0L
+        cooldownUntil = 0L
+        failures = 0
+        if (Prefs.anonFallback && clientId == null) AppScope.scope.launch {
+            delay(1_500)
+            warmUp()
+        }
+    }
+
     fun warmUp() {
         if (!Prefs.anonFallback || clientId != null) return
         if (nowMillis() - warmFailedAt < 3 * 60_000L) return
         if (!warming.compareAndSet(false, true)) return
+        val gen = netGen
         try {
             val started = nowMillis()
             runCatching { locked(lock) { clientId ?: fetchClientId() } }
                 .onSuccess { Logs.add("anon", "client_id ready in ${(nowMillis() - started) / 1000}s") }
                 .onFailure {
-                    warmFailedAt = nowMillis()
+                    if (netGen == gen) warmFailedAt = nowMillis()
                     Logs.add("anon", "warm-up failed after ${(nowMillis() - started) / 1000}s: ${it::class.simpleName} ${it.message?.take(60) ?: ""}")
                 }
         } finally {
             warming.set(false)
+            if (netGen != gen && clientId == null) AppScope.scope.launch { warmUp() }
         }
     }
 
@@ -223,8 +240,8 @@ object ScAnon {
         if (!available()) return null
         if (!urn.startsWith("soundcloud:tracks:")) return null
         if (clientId == null) {
-            AppScope.scope.launch { warmUp() }
-            return null
+            warmUp()
+            if (clientId == null) return null
         }
         val id = urn.substringAfterLast(':')
         return try {

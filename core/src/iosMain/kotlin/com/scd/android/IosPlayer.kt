@@ -93,6 +93,7 @@ class IosPlayer : QueuePlayer {
     override val isPlaying: Boolean get() = av.timeControlStatus == AVPlayerTimeControlStatusPlaying
     override val playWhenReady: Boolean get() = wantPlay
     override val failed: Boolean get() = hasFailed
+    override val ready: Boolean get() = !loading && !hasFailed && av.currentItem?.status == AVPlayerItemStatusReadyToPlay
     override val idle: Boolean get() = tracks.isEmpty() || (av.currentItem == null && !loading)
 
     override val positionMs: Long
@@ -297,6 +298,7 @@ class IosPlayer : QueuePlayer {
     }
 
     private fun notifyChanged() {
+        NowPlaying.sync(this)
         listeners.toList().forEach { runCatching { it.onChanged() } }
         updateNowPlaying()
     }
@@ -326,8 +328,8 @@ class IosPlayer : QueuePlayer {
         val n = nextIndex
         val t = tracks.getOrNull(n) ?: return
         if (n == cur) return
-        val path = Downloads.localPath(t.urn)?.takeIf { Fs.exists(it) } ?: StreamFiles.cached(t.urn) ?: return
-        val item = AVPlayerItem.playerItemWithURL(NSURL.fileURLWithPath(path))
+        val path = Downloads.localPath(t.urn)?.takeIf { Fs.exists(it) } ?: StreamFiles.readyCached(t.urn) ?: return
+        val item = newItem(path)
         if (!av.canInsertItem(item, afterItem = av.currentItem)) return
         av.insertItem(item, afterItem = av.currentItem)
         preItem = item
@@ -418,7 +420,7 @@ class IosPlayer : QueuePlayer {
         loading = true
         recordedDuration = null
         filePath = null
-        val local = Downloads.localPath(t.urn)?.takeIf { Fs.exists(it) } ?: StreamFiles.cached(t.urn)
+        val local = Downloads.localPath(t.urn)?.takeIf { Fs.exists(it) } ?: StreamFiles.readyCached(t.urn)
         if (local != null) {
             startFile(local)
             return
@@ -426,16 +428,26 @@ class IosPlayer : QueuePlayer {
         val urn = t.urn
         notifyChanged()
         loadJob = scope.launch {
-            val path = StreamFiles.get(t)
+            val path = try {
+                StreamFiles.get(t)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Logs.add("player", "source ${e::class.simpleName}")
+                null
+            }
             if (currentUrn != urn) return@launch
             if (path == null) trackFailed("no source") else startFile(path)
         }
     }
 
+    private fun newItem(path: String): AVPlayerItem =
+        AVPlayerItem.playerItemWithURL(NSURL.fileURLWithPath(path)).also { IosEq.attach(it) }
+
     private fun startFile(path: String) {
         filePath = path
         av.removeAllItems()
-        av.insertItem(AVPlayerItem.playerItemWithURL(NSURL.fileURLWithPath(path)), afterItem = null)
+        av.insertItem(newItem(path), afterItem = null)
         if (pendingPos > 0L) av.seekToTime(CMTimeMakeWithSeconds(pendingPos / 1000.0, 1000))
         loading = false
         if (wantPlay) av.play()
@@ -534,7 +546,7 @@ class IosPlayer : QueuePlayer {
                 watchHistory()
                 prefetchNext()
             }
-            val snap = "$playing|$cur|${tracks.size}|$hasFailed|$loading|${durationMs > 0}"
+            val snap = "$playing|$cur|${tracks.size}|$hasFailed|$loading|$ready|${durationMs > 0}"
             ticks++
             if (snap != lastSnapshot) {
                 lastSnapshot = snap

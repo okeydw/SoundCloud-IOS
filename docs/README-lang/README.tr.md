@@ -186,6 +186,14 @@ QR ile giriş protokolü: masaüstü deposundaki [qr-link-protocol.md](https://g
 ---
 
 
+## İstatistikler
+
+<p align="center">
+<img src="https://zxcloli666.github.io/download-history/okeydw_SoundCloud-iOS.svg" alt="İndirme geçmişi" />
+</p>
+
+---
+
 ## Lisans
 
 MIT. Ayrıntılar [LICENSE](../../LICENSE) dosyasında.

@@ -1,3 +1,4 @@
 SoundCloud/Info.plist
+SoundCloudWidget/Info.plist
 *.xcodeproj
 build/

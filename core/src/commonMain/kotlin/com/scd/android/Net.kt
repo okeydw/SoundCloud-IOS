@@ -52,7 +52,9 @@ interface HttpEngine {
 
 open class UnreachableException(message: String) : IOException(message)
 
-class ApiHttpException(val code: Int, val body: String) : IOException("API $code: $body")
+class ApiHttpException(val code: Int, val body: String, val retryAfterSeconds: Long? = null) : IOException("API $code: $body") {
+    val serviceCode: String? get() = MobileApiContract.errorCode(body)
+}
 
 object Http {
     lateinit var engine: HttpEngine

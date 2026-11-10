@@ -27,7 +27,7 @@ interface WaveBackup {
 
 object Api {
     val API_BASE get() = if (Endpoints.starApiActive) Endpoints.API_STAR else Endpoints.apiBase
-    val CONTROL_BASE get() = Endpoints.apiBase
+    val CONTROL_BASE get() = Endpoints.serviceHosts("api").first()
     val STREAM_BASE get() = Endpoints.streamBase
     val IMAGES_BASE get() = Endpoints.imageBase
 
@@ -68,7 +68,7 @@ object Api {
 
     private suspend fun mutate(method: String, path: String, body: HttpBody?): String =
         withContext(IoDispatcher) {
-            val bases = if (Endpoints.starApiActive) listOf(Endpoints.API_STAR, Endpoints.apiBase) else listOf(Endpoints.apiBase)
+            val bases = Endpoints.hostsFor(path)
             var last: Exception? = null
             for ((i, base) in bases.withIndex()) {
                 val hasNext = i < bases.lastIndex
@@ -79,10 +79,8 @@ object Api {
                         val text = res.text()
                         if (res.isSuccessful) return@withContext text
                         Logs.add("api", "$method $path → ${res.code} @$host ${text.take(120).replace('\n', ' ')}")
-                        val html = res.header("content-type")?.contains("text/html", ignoreCase = true) == true
-                        val infra = res.code in 502..504 && html
-                        val starGate = base == Endpoints.API_STAR && res.code == 403
-                        if (hasNext && ((infra && method != "POST") || starGate)) {
+                        val starGate = Endpoints.isStarApi(base) && res.code == 403
+                        if (hasNext && starGate) {
                             last = ApiHttpException(res.code, text.take(300))
                             return@let
                         }
@@ -113,13 +111,13 @@ object Api {
         getJson("$API_BASE/users?limit=$limit&page=$page&q=${enc(q)}", PagedUsers.serializer())
 
     suspend fun user(urn: String): Artist =
-        getJson("$API_BASE/users/${enc(urn)}", Artist.serializer())
+        getReadyJson("$API_BASE/users/${enc(urn)}", Artist.serializer())
 
     suspend fun userTracks(urn: String, page: Int = 0, limit: Int = 30): PagedTracks =
-        getJson("$API_BASE/users/${enc(urn)}/tracks?limit=$limit&page=$page", PagedTracks.serializer())
+        getReadyJson("$API_BASE/users/${enc(urn)}/tracks?limit=$limit&page=$page", PagedTracks.serializer())
 
     suspend fun userPlaylists(urn: String, page: Int = 0, limit: Int = 30): PagedPlaylists =
-        getJson("$API_BASE/users/${enc(urn)}/playlists?limit=$limit&page=$page", PagedPlaylists.serializer())
+        getReadyJson("$API_BASE/users/${enc(urn)}/playlists?limit=$limit&page=$page", PagedPlaylists.serializer())
 
     suspend fun authLogin(): LoginResponse =
         getJson("$API_BASE/auth/login", LoginResponse.serializer())
@@ -171,7 +169,7 @@ object Api {
     }
 
     private suspend fun resolveOnStream(clean: String): ResolveResult? {
-        val bases = listOf(Endpoints.STREAM_STAR, STREAM_BASE) + Endpoints.streamHosts
+        val bases = Endpoints.serviceHosts("stream-star") + Endpoints.serviceHosts("stream")
         for (base in bases.distinct()) {
             val body = runCatching {
                 val res = Http.execute(HttpRequest("$base/resolve?url=${enc(clean)}", profile = HttpProfile.PROBE, forceNetwork = true))
@@ -231,7 +229,7 @@ object Api {
         val out = LinkedHashMap<String, Track>()
         for (chunk in ids.distinct().chunked(50)) {
             val body = runCatching {
-                getJson("$API_BASE/tracks?ids=${chunk.joinToString(",")}", kotlinx.serialization.json.JsonElement.serializer(), fresh = true)
+                getJson("$API_BASE/tracks?ids=${chunk.joinToString(",") { enc(it.removePrefix("soundcloud:tracks:")) }}&limit=${chunk.size}&page=0", kotlinx.serialization.json.JsonElement.serializer(), fresh = true)
             }.getOrNull() ?: return null
             val list = when (body) {
                 is kotlinx.serialization.json.JsonArray -> body
@@ -245,7 +243,7 @@ object Api {
                 }
             }
         }
-        val result = ids.mapNotNull { out[it] }
+        val result = ids.mapNotNull { out[it.removePrefix("soundcloud:tracks:")] }
         if (result.isEmpty()) return null
         if (result.size < ids.size) Logs.add("wave", "batch: ${result.size}/${ids.size} tracks")
         return result
@@ -285,16 +283,10 @@ object Api {
         return tracks to payload.cursor
     }
 
-    suspend fun lyrics(urn: String): LyricsResponse? = withContext(IoDispatcher) {
-        for (id in listOf(urn, urn.substringAfterLast(':')).distinct()) {
-            val req = HttpRequest("$API_BASE/lyrics/${enc(id)}", headers = sessionHeader(), profile = HttpProfile.SLOW, queued = true)
-            val result = runCatching {
-                val res = Http.execute(req)
-                if (!res.isSuccessful) null else json.decodeFromString(LyricsResponse.serializer(), res.text())
-            }.getOrNull()
-            if (result != null) return@withContext result
-        }
-        null
+    suspend fun lyrics(urn: String): LyricsResponse? = try {
+        getJson("$API_BASE/lyrics/${enc(urn)}", LyricsResponse.serializer(), fresh = true)
+    } catch (e: ApiHttpException) {
+        if (e.code == 404) null else throw e
     }
 
     suspend fun recommendations(hideListened: Boolean): kotlinx.serialization.json.JsonElement =
@@ -362,7 +354,7 @@ object Api {
 
         if (nowMillis() - SessionState.lastRefreshAt > 10 * 60_000L) {
             val code = refreshSession()
-            if (code in 200..299) {
+            if (code == 200) {
                 SessionState.lastRefreshAt = nowMillis()
                 Logs.add("wave", "empty → session refreshed, retrying")
                 runCatching { waveBatch(null, limit, null, fresh) }.getOrNull()
@@ -406,7 +398,7 @@ object Api {
     }
 
     suspend fun likedTracks(page: Int = 0, limit: Int = 50, fresh: Boolean = false): PagedTracks =
-        getJson("$API_BASE/me/likes/tracks?limit=$limit&page=$page", PagedTracks.serializer(), fresh)
+        getReadyJson("$API_BASE/me/likes/tracks?limit=$limit&page=$page", PagedTracks.serializer(), fresh)
 
     private fun jsonBody(text: String) = HttpBody.json(text)
 
@@ -421,13 +413,13 @@ object Api {
     }
 
     suspend fun myPlaylists(page: Int = 0, limit: Int = 50, fresh: Boolean = false): PagedPlaylists =
-        getJson("$API_BASE/me/playlists?limit=$limit&page=$page", PagedPlaylists.serializer(), fresh)
+        getReadyJson("$API_BASE/me/playlists?limit=$limit&page=$page", PagedPlaylists.serializer(), fresh)
 
     suspend fun playlistTracks(urn: String, page: Int = 0, limit: Int = 50, fresh: Boolean = false): PagedTracks =
-        getJson("$API_BASE/playlists/${enc(urn)}/tracks?limit=$limit&page=$page", PagedTracks.serializer(), fresh)
+        getReadyJson("$API_BASE/playlists/${enc(urn)}/tracks?limit=$limit&page=$page", PagedTracks.serializer(), fresh)
 
     suspend fun likedPlaylists(page: Int = 0, limit: Int = 50, fresh: Boolean = false): PagedPlaylists =
-        getJson("$API_BASE/me/likes/playlists?limit=$limit&page=$page", PagedPlaylists.serializer(), fresh)
+        getReadyJson("$API_BASE/me/likes/playlists?limit=$limit&page=$page", PagedPlaylists.serializer(), fresh)
 
     suspend fun likePlaylist(urn: String) {
         mutate("POST", "/likes/playlists/${enc(urn)}", emptyBody)
@@ -510,7 +502,7 @@ object Api {
         val sid = sessionId ?: return@withContext 401
         runCatching {
             val res = Http.execute(
-                HttpRequest("$CONTROL_BASE/auth/refresh", "POST", listOf("x-session-id" to sid), HttpBody.EMPTY, HttpProfile.REFRESH, forceNetwork = true),
+                HttpRequest("$CONTROL_BASE/auth/soundcloud/refresh", "POST", listOf("x-session-id" to sid), HttpBody.EMPTY, HttpProfile.REFRESH, forceNetwork = true),
             )
             if (!res.isSuccessful) {
                 Logs.add("auth", "refresh HTTP ${res.code}: ${res.text().take(120)}")
@@ -524,19 +516,20 @@ object Api {
 
     suspend fun sessionValid(): Boolean? = withContext(IoDispatcher) {
         val sid = sessionId ?: return@withContext false
-        runCatching {
-            Http.execute(
-                HttpRequest("$CONTROL_BASE/auth/session", headers = listOf("x-session-id" to sid), profile = HttpProfile.API, forceNetwork = true),
-            ).let { res ->
-                when {
-                    res.code == 401 || res.code == 403 -> false
-                    !res.isSuccessful -> null
-                    else -> runCatching {
-                        json.decodeFromString(AuthStatus.serializer(), res.text()).authenticated
-                    }.getOrNull()
-                }
-            }
-        }.getOrNull()
+        var uncertain = false
+        var answered = false
+        for (base in Endpoints.hostsFor("/auth/session")) {
+            val valid = try {
+                val res = Http.execute(HttpRequest("$base/auth/session", headers = listOf("x-session-id" to sid), profile = HttpProfile.API, forceNetwork = true))
+                if (res.isSuccessful) MobileApiContract.sessionAuthenticated(res.text()) else null
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) { null }
+            if (sid != sessionId) return@withContext null
+            if (valid == true) return@withContext true
+            if (valid == false) answered = true else uncertain = true
+        }
+        if (answered && !uncertain) false else null
     }
 
     suspend fun subscription(): Subscription =
@@ -590,7 +583,7 @@ object Api {
 
     suspend fun paySubscription(): PaySubscription = withContext(IoDispatcher) {
         Http.execute(
-            HttpRequest("https://pay.scnative.space/api/me/subscription", headers = sessionHeader(), profile = HttpProfile.MUTATE, forceNetwork = true),
+            HttpRequest("${Endpoints.serviceHosts("pay").first()}/api/me/subscription", headers = sessionHeader(), profile = HttpProfile.MUTATE, forceNetwork = true),
         ).let { res ->
             val body = res.text()
             if (!res.isSuccessful) throw ApiHttpException(res.code, body.take(200))
@@ -599,13 +592,19 @@ object Api {
     }
 
     suspend fun webProfiles(urn: String): List<WebProfile> {
-        val root = getJson("$API_BASE/users/${enc(urn)}/web-profiles", kotlinx.serialization.json.JsonElement.serializer())
+        val root = getReadyJson("$API_BASE/users/${enc(urn)}/web-profiles", kotlinx.serialization.json.JsonElement.serializer())
+        return decodeWebProfiles(root)
+    }
+
+    internal fun decodeWebProfiles(root: kotlinx.serialization.json.JsonElement): List<WebProfile> {
         val arr = when (root) {
             is kotlinx.serialization.json.JsonArray -> root
             is kotlinx.serialization.json.JsonObject -> root["collection"] as? kotlinx.serialization.json.JsonArray
             else -> null
-        } ?: return emptyList()
-        return arr.mapNotNull { runCatching { json.decodeFromJsonElement(WebProfile.serializer(), it) }.getOrNull() }
+        } ?: throw IOException("Invalid artist links response")
+        val profiles = arr.mapNotNull { runCatching { json.decodeFromJsonElement(WebProfile.serializer(), it) }.getOrNull() }
+        if (arr.isNotEmpty() && profiles.isEmpty()) throw IOException("Invalid artist links response")
+        return profiles
     }
 
     suspend fun isFollowing(me: String, urn: String): Boolean =
@@ -760,8 +759,18 @@ object Api {
         val host = url.substringAfter("://").substringBefore('/')
         val apiHost = if (host.startsWith("stream")) "api" + host.removePrefix("stream") else host
         val urn = path.removePrefix("/stream/").substringBefore('?')
-        val query = path.substringAfter('?', "").split('&').filter { it.isNotEmpty() && !it.startsWith("session_id=") }
-        return "https://$apiHost/tracks/$urn/stream" + if (query.isEmpty()) "" else "?" + query.joinToString("&")
+        val query = path.substringAfter('?', "").split('&').filter { it.isNotEmpty() && !it.startsWith("session_id=") }.toMutableList()
+        if (query.none { it.startsWith("quality=") }) {
+            val hq = "hq=true" in query
+            val quality = when {
+                Prefs.star && hq -> "uq"
+                Prefs.star -> "sq"
+                else -> "hq"
+            }
+            if (quality != "sq" && !hq) query.add(0, "hq=true")
+            query.add("quality=$quality")
+        }
+        return "https://$apiHost/tracks/$urn/stream?" + query.joinToString("&")
     }
 
     fun authorizedHeaders(url: String): Pair<String, List<Pair<String, String>>> {
@@ -800,29 +809,41 @@ object Api {
         return if (slash >= 0) afterScheme.substring(slash) else "/"
     }
 
+    private suspend fun <T> getReadyJson(url: String, strategy: DeserializationStrategy<T>, fresh: Boolean = false): T {
+        if (Prefs.offline) return getJson(url, strategy, fresh)
+        val sid = sessionId
+        return CatalogRead.awaitReady {
+            if (sid != sessionId) throw kotlinx.coroutines.CancellationException("Session changed")
+            getJson(url, strategy, fresh)
+        }
+    }
+
     private suspend fun <T> getJson(url: String, strategy: DeserializationStrategy<T>, fresh: Boolean = false): T =
         withContext(IoDispatcher) {
+            val sid = sessionId
             val path = pathOf(url)
             val hosts = Endpoints.hostsFor(path)
-            val firstMain = hosts.firstOrNull { it != Endpoints.API_STAR }
+            val firstMain = hosts.firstOrNull { !Endpoints.isStarApi(it) }
             var lastError: Exception? = null
             for (base in hosts) {
-                val isStar = base == Endpoints.API_STAR
+                val isStar = Endpoints.isStarApi(base)
                 val full = base + path
                 try {
-                    val req = HttpRequest(full, headers = sessionHeader(), profile = HttpProfile.API, forceNetwork = fresh, queued = true)
+                    val req = HttpRequest(full, headers = sessionHeader(), profile = HttpProfile.API, forceNetwork = fresh || !Prefs.offline, queued = true)
                     return@withContext Http.execute(req).let { res ->
                         val body = res.text()
+                        if (sid != sessionId) throw kotlinx.coroutines.CancellationException("Session changed")
                         if (!res.isSuccessful) {
-                            if (isStar && (res.code == 403 || res.code >= 500)) {
+                            if (isStar && res.code == 403) {
                                 throw IOException("star ${res.code}")
                             }
                             if (res.code == 401) SessionState.markExpired()
-                            if (res.code in intArrayOf(400, 401, 403, 404)) {
-                                throw ApiHttpException(res.code, body.take(300))
+                            if (res.code in 400..499 || !MobileApiContract.retryHost(res.code, body)) {
+                                throw ApiHttpException(res.code, body.take(2000), res.header("Retry-After")?.toLongOrNull())
                             }
                             throw IOException("API host ${res.code}")
                         }
+                        MobileApiContract.collectionFailure(body)?.let { throw it }
                         if (!isStar && base != firstMain) {
                             Endpoints.commitApi(Endpoints.apiHosts.indexOf(base))
                         }

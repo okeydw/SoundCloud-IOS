@@ -8,7 +8,7 @@ import org.junit.Test
 class PureLogicTest {
 
     @Test
-    fun parseLrcReadsTimestampsAndSkipsEmptyLines() {
+    fun parseLrcReadsTimestampsAndKeepsTimedPauses() {
         val lines = parseLrc(
             """
             [ar:Someone]
@@ -17,10 +17,11 @@ class PureLogicTest {
             [01:02.345] second
             """.trimIndent(),
         )
-        assertEquals(2, lines.size)
+        assertEquals(3, lines.size)
         assertEquals(1_500L, lines[0].timeMs)
         assertEquals("first", lines[0].text)
-        assertEquals(62_345L, lines[1].timeMs)
+        assertEquals("", lines[1].text)
+        assertEquals(62_345L, lines[2].timeMs)
     }
 
     @Test
@@ -46,8 +47,8 @@ class PureLogicTest {
 
     @Test
     fun cacheKeyIgnoresSessionAndKeepsHq() {
-        val plain = MediaCache.keyOf("https://stream.scnative.space/stream/soundcloud%3Atracks%3A42?session_id=abc")
-        val hq = MediaCache.keyOf("https://stream-star.scnative.space/stream/soundcloud%3Atracks%3A42?hq=true&session_id=abc")
+        val plain = MediaCache.keyOf("https://stream.scnative.dev/stream/soundcloud%3Atracks%3A42?session_id=abc")
+        val hq = MediaCache.keyOf("https://stream-star.scnative.dev/stream/soundcloud%3Atracks%3A42?hq=true&session_id=abc")
         assertEquals("soundcloud:tracks:42", plain)
         assertEquals("soundcloud:tracks:42|hq", hq)
         assertEquals(
@@ -64,16 +65,17 @@ class PureLogicTest {
 
     @Test
     fun sessionOnlyGoesToTrustedHosts() {
-        assertTrue(Endpoints.trustedUrl("https://api.scnative.space/me"))
-        assertTrue(Endpoints.trustedUrl("https://stream.r2.relay.scnative.space/stream/x"))
+        assertFalse(Endpoints.trustedUrl("https://api.scnative.space/me"))
+        assertTrue(Endpoints.trustedUrl("https://api.scnative.dev/me"))
+        assertTrue(Endpoints.trustedUrl("https://stream.r2.relay.scnative.dev/stream/x"))
         assertFalse(Endpoints.trustedUrl("https://api.scdinternal.site/me"))
-        assertFalse(Endpoints.trustedUrl("https://scnative.space.evil.com/stream/x"))
+        assertFalse(Endpoints.trustedUrl("https://scnative.dev.evil.com/stream/x"))
         assertFalse(Endpoints.trustedUrl("https://user@evil.com/stream/x"))
-        assertFalse(Endpoints.trustedUrl("http://api.scnative.space/me"))
-        assertFalse(Endpoints.trustedUrl("https://evil.com#.scnative.space/stream/x"))
-        assertFalse(Endpoints.trustedUrl("https://evil.com\\.scnative.space/stream/x"))
-        assertFalse(Endpoints.trustedUrl("https://evil.com%2F.scnative.space/stream/x"))
-        assertTrue(Endpoints.trustedUrl("https://api.scnative.space:443/me"))
+        assertFalse(Endpoints.trustedUrl("http://api.scnative.dev/me"))
+        assertFalse(Endpoints.trustedUrl("https://evil.com#.scnative.dev/stream/x"))
+        assertFalse(Endpoints.trustedUrl("https://evil.com\\.scnative.dev/stream/x"))
+        assertFalse(Endpoints.trustedUrl("https://evil.com%2F.scnative.dev/stream/x"))
+        assertTrue(Endpoints.trustedUrl("https://api.scnative.dev:443/me"))
     }
 
     @Test

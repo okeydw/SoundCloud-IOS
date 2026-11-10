@@ -1,0 +1,4 @@
+"widget_name" = "Плеер";
+"widget_desc" = "Текущий трек и управление";
+"widget_idle" = "Ничего не играет";
+"widget_open" = "Нажмите, чтобы открыть SoundCloud";

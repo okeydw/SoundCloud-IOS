@@ -1,0 +1,4 @@
+"widget_name" = "Oynatıcı";
+"widget_desc" = "Çalan parça ve kontroller";
+"widget_idle" = "Hiçbir şey çalmıyor";
+"widget_open" = "SoundCloud'ı açmak için dokunun";

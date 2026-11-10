@@ -1,0 +1,4 @@
+"widget_name" = "播放器";
+"widget_desc" = "当前曲目与播放控制";
+"widget_idle" = "未在播放";
+"widget_open" = "轻点打开 SoundCloud";

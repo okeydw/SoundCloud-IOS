@@ -186,6 +186,14 @@ QR-Anmeldeprotokoll: [qr-link-protocol.md](https://github.com/zxcloli666/SoundCl
 ---
 
 
+## Statistik
+
+<p align="center">
+<img src="https://zxcloli666.github.io/download-history/okeydw_SoundCloud-iOS.svg" alt="Download-Verlauf" />
+</p>
+
+---
+
 ## Lizenz
 
 MIT. Details in der Datei [LICENSE](../../LICENSE).

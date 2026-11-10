@@ -45,7 +45,7 @@ import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 
-private enum class IosSec { Root, Account, Look, Playback, Network, About, Logs }
+private enum class IosSec { Root, Account, Look, Equalizer, Playback, Network, About, Logs }
 
 @Composable
 actual fun SettingsScreen(
@@ -65,6 +65,7 @@ actual fun SettingsScreen(
         IosSec.Root -> stringResource(Res.string.settings)
         IosSec.Account -> stringResource(Res.string.tab_account)
         IosSec.Look -> stringResource(Res.string.tab_visual)
+        IosSec.Equalizer -> stringResource(Res.string.equalizer)
         IosSec.Playback -> stringResource(Res.string.tab_advanced)
         IosSec.Network -> stringResource(Res.string.relay_section)
         IosSec.About -> stringResource(Res.string.tab_about)
@@ -91,6 +92,7 @@ actual fun SettingsScreen(
                     Panel {
                         IosRow(Res.drawable.ic_user, stringResource(Res.string.tab_account)) { sec = IosSec.Account }
                         IosRow(Res.drawable.ic_music, stringResource(Res.string.tab_visual)) { sec = IosSec.Look }
+                        IosRow(Res.drawable.ic_equalizer, stringResource(Res.string.equalizer)) { sec = IosSec.Equalizer }
                         IosRow(Res.drawable.ic_settings, stringResource(Res.string.tab_advanced)) { sec = IosSec.Playback }
                         IosRow(Res.drawable.ic_globe, stringResource(Res.string.relay_section)) { sec = IosSec.Network }
                         IosRow(Res.drawable.ic_history, stringResource(Res.string.tab_logs)) { sec = IosSec.Logs }
@@ -157,12 +159,18 @@ actual fun SettingsScreen(
                     }
                     visualExtras()
                 }
+                IosSec.Equalizer -> {
+                    Panel {
+                        Column(Modifier.padding(14.dp)) { GlassEqualizer(onClose = null) }
+                    }
+                    Panel {
+                        SpeedPitchPanel(Modifier.padding(14.dp))
+                    }
+                }
                 IosSec.Playback -> {
+                    QualitySettingsPanel()
                     Panel {
                         Toggle(stringResource(Res.string.haptics), stringResource(Res.string.haptics_hint), Prefs.haptics) { Prefs.changeHaptics(it) }
-                        if (Prefs.star) {
-                            Toggle(stringResource(Res.string.hq_streaming), stringResource(Res.string.hq_streaming_hint), Prefs.hqStreaming) { Prefs.changeHqStreaming(it) }
-                        }
                         Toggle(stringResource(Res.string.anon_fallback), stringResource(Res.string.anon_fallback_hint), Prefs.anonFallback) { Prefs.changeAnonFallback(it) }
                         Toggle(stringResource(Res.string.offline_mode), "", Prefs.offline) { Prefs.setOfflineMode(it) }
                         Toggle(stringResource(Res.string.offline_auto), stringResource(Res.string.offline_auto_hint), Prefs.autoOffline) { Prefs.changeAutoOffline(it) }
@@ -178,19 +186,19 @@ actual fun SettingsScreen(
 }
 
 @Composable
-private fun Panel(content: @Composable () -> Unit) {
+internal fun Panel(content: @Composable () -> Unit) {
     val p = LocalGlass.current
     Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(22.dp), p, shadow = 0.dp).padding(vertical = 4.dp)) { content() }
 }
 
 @Composable
-private fun Label(text: String) {
+internal fun Label(text: String) {
     val p = LocalGlass.current
     Text(text.uppercase(), style = GlassType.eyebrow, color = p.text3, modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp))
 }
 
 @Composable
-private fun IosRow(icon: DrawableResource, title: String, subtitle: String? = null, onClick: () -> Unit) {
+internal fun IosRow(icon: DrawableResource, title: String, subtitle: String? = null, onClick: () -> Unit) {
     val p = LocalGlass.current
     Row(
         Modifier.fillMaxWidth().pressable(onClick = onClick).padding(horizontal = 14.dp, vertical = 12.dp),
@@ -209,7 +217,7 @@ private fun IosRow(icon: DrawableResource, title: String, subtitle: String? = nu
 }
 
 @Composable
-private fun Choice(title: String, selected: Boolean, onClick: () -> Unit) {
+internal fun Choice(title: String, selected: Boolean, onClick: () -> Unit) {
     val p = LocalGlass.current
     Row(Modifier.fillMaxWidth().pressable(onClick = onClick).padding(horizontal = 16.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(title, style = GlassType.rowTitle, color = p.text, modifier = Modifier.weight(1f))
@@ -218,7 +226,7 @@ private fun Choice(title: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun Toggle(title: String, hint: String, value: Boolean, onChange: (Boolean) -> Unit) {
+internal fun Toggle(title: String, hint: String, value: Boolean, onChange: (Boolean) -> Unit) {
     val p = LocalGlass.current
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
@@ -295,3 +303,8 @@ private fun LogsPanel() {
 
 @Composable
 actual fun SettingsLink(icon: DrawableResource, title: String, subtitle: String, onClick: () -> Unit) = IosRow(icon, title, subtitle, onClick)
+
+@Composable
+internal fun Hint(text: String) {
+    Text(text, style = GlassType.small, color = LocalGlass.current.text2, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+}

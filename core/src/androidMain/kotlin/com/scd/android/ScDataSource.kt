@@ -224,6 +224,19 @@ class ScDataSource(private val client: OkHttpClient) : BaseDataSource(true) {
                         reachable = true
                         false
                     }
+                    val previewSecs = if (saved) snippetSeconds(cacheFile, urn) else null
+                    if (previewSecs != null) {
+                        logAttempt(HlsDownload.manifest(candidate), requested, "hls is only a ${previewSecs}s preview, looking further", started)
+                        val keep = File(cacheFile.path + ".preview")
+                        keep.delete()
+                        if (snippet == null && cacheFile.renameTo(keep)) {
+                            snippet = keep
+                            snippetUrl = candidate
+                        } else {
+                            cacheFile.delete()
+                        }
+                        continue
+                    }
                     val short = if (saved) spoolTooShort(cacheFile, urn) else null
                     if (short != null) {
                         cacheFile.delete()
@@ -421,6 +434,7 @@ class ScDataSource(private val client: OkHttpClient) : BaseDataSource(true) {
         }
         starHq(requested)?.let { yield(it) }
         starPlain(requested)?.let { yield(it) }
+        if (!regular && urn != null) ScAnon.sourceUrl(urn)?.let { yield(it) }
         for (url in storageCandidates(requested)) yield(url)
         if (!regular) resolveViaDownload(requested)?.let { yield(it) }
     }
@@ -664,18 +678,19 @@ class ScDataSource(private val client: OkHttpClient) : BaseDataSource(true) {
         private val storageQuality = ConcurrentHashMap<String, String>()
         private val candidateQuality = ConcurrentHashMap<String, String>()
 
+        @Synchronized
         fun noteStorageQuality(urn: String, quality: String?, overwrite: Boolean = true) {
-            val q = quality?.lowercase() ?: return
-            if (!overwrite && storageQuality.containsKey(urn)) return
-            if (storageQuality[urn] == "hq" && q != "hq") return
+            val reported = Quality.parse(quality) ?: return
             loadKnownQuality()
-            val before = knownQuality[urn]
+            val before = AudioQualityPolicy.bestKnown(storageQuality[urn], knownQuality[urn])
+            val best = AudioQualityPolicy.bestKnown(before?.label, reported.label) ?: return
+            if (!overwrite && storageQuality[urn] == best.label) return
             if (storageQuality.size > 3000) storageQuality.clear()
-            storageQuality[urn] = if (before == "hq") "hq" else q
-            if (before == q || before == "hq") return
-            knownQuality[urn] = q
-            if (before != null && q == "hq" && urn != NowPlaying.urn && upgradedUrns.add(urn)) {
-                Logs.add("stream", "storage quality $before → $q, dropping cached copy")
+            storageQuality[urn] = best.label
+            if (knownQuality[urn] == best.label) return
+            knownQuality[urn] = best.label
+            if (before != null && best.rank > before.rank && urn != NowPlaying.urn) {
+                Logs.add("stream", "storage quality ${before.label} → ${best.label}, dropping cached copy")
                 invalidate(urn)
             }
             if (knownQuality.size > 20_000) knownQuality.clear()
@@ -683,7 +698,6 @@ class ScDataSource(private val client: OkHttpClient) : BaseDataSource(true) {
         }
 
         private val knownQuality = ConcurrentHashMap<String, String>()
-        private val upgradedUrns = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
         @Volatile
         private var knownLoaded = false
@@ -730,12 +744,9 @@ class ScDataSource(private val client: OkHttpClient) : BaseDataSource(true) {
             candidateQuality[url] = q
         }
 
-        fun sourceIsHq(url: String, urn: String?, header: String?): Boolean = when {
-            header == "hq" -> true
-            header == "sq" -> false
-            isStorage(url) -> urn != null && storageQuality[urn] == "hq"
-            else -> candidateQuality[url] == "hq"
-        }
+        fun sourceIsHq(url: String, urn: String?, header: String?): Boolean =
+            AudioQualityPolicy.isHigh(header, if (isStorage(url)) urn?.let { storageQuality[it] } else candidateQuality[url])
+
         private val expectedMs = ConcurrentHashMap<String, Long>()
         private val shortSpools = ConcurrentHashMap<String, Int>()
 
@@ -1000,7 +1011,7 @@ class ScDataSource(private val client: OkHttpClient) : BaseDataSource(true) {
                 streamRefreshAt = now
                 SessionState.lastRefreshAt = now
                 val code = runCatching { runBlocking { Api.refreshSession() } }.getOrDefault(-1)
-                return if (code in 200..299) {
+                return if (code == 200) {
                     Logs.add("auth", "stream 401 → session refreshed, retrying")
                     resolvedAlt.clear()
                     resolvedDownload.clear()

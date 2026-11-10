@@ -41,7 +41,7 @@ object SessionGuard {
         val recentlyRefreshed = nowMillis() - SessionState.lastRefreshAt < 10 * 60_000L
         if (stream && !recentlyRefreshed) {
             val code = Api.refreshSession()
-            if (code in 200..299) {
+            if (code == 200) {
                 SessionState.lastRefreshAt = nowMillis()
                 SessionState.consume()
                 Logs.add("auth", "stream 401 → session refreshed")
@@ -177,7 +177,7 @@ object Startup {
                 delay(600)
                 val since = Likes.snapshot()
                 runCatching { Api.likedTracks(0, 100, fresh = true) }.onSuccess { res ->
-                    if (res.has_more) Likes.seed(res.collection) else Likes.replaceAll(res.collection, since)
+                    if (res.complete) Likes.replaceAll(res.collection, since) else Likes.seed(res.collection)
                 }
                 delay(5_000)
                 PlatformHooks.afterLikesSynced(app)

@@ -1,0 +1,4 @@
+"widget_name" = "Player";
+"widget_desc" = "Current track and playback controls";
+"widget_idle" = "Nothing playing";
+"widget_open" = "Tap to open SoundCloud";

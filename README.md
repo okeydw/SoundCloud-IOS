@@ -186,6 +186,14 @@ open SoundCloud.xcodeproj                                         # Kotlin-фр�
 ---
 
 
+## Статистика
+
+<p align="center">
+<img src="https://zxcloli666.github.io/download-history/okeydw_SoundCloud-iOS.svg" alt="История скачиваний" />
+</p>
+
+---
+
 ## Лицензия
 
 MIT. Подробности в файле [LICENSE](LICENSE).

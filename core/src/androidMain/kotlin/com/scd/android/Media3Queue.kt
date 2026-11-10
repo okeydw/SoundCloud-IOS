@@ -18,6 +18,7 @@ class Media3Queue(val player: Player) : QueuePlayer {
     override val positionMs: Long get() = player.currentPosition.coerceAtLeast(0L)
     override val durationMs: Long get() = player.duration.let { if (it == C.TIME_UNSET) 0L else it.coerceAtLeast(0L) }
     override val failed: Boolean get() = player.playerError != null
+    override val ready: Boolean get() = player.playbackState == Player.STATE_READY
     override val idle: Boolean get() = player.playbackState == Player.STATE_IDLE
     override var shuffle: Boolean
         get() = ShuffleQueue.on

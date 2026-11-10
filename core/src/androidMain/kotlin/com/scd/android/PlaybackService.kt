@@ -64,7 +64,7 @@ class PlaybackService : MediaSessionService() {
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
-        val player = ExoPlayer.Builder(this)
+        val player = ExoPlayer.Builder(this, EqRenderersFactory(this))
             .setMediaSourceFactory(
                 androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory),
             )
@@ -109,10 +109,6 @@ class PlaybackService : MediaSessionService() {
 
             override fun onRepeatModeChanged(repeatMode: Int) {
                 Prefs.changeRepeatMode(repeatMode)
-            }
-
-            override fun onAudioSessionIdChanged(audioSessionId: Int) {
-                AudioFx.attach(audioSessionId)
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -164,11 +160,6 @@ class PlaybackService : MediaSessionService() {
         updateCustomLayout()
         scope.launch(Dispatchers.Main) {
             androidx.compose.runtime.snapshotFlow { Likes.urns }.collect { updateCustomLayout() }
-        }
-        AudioFx.attach(player.audioSessionId)
-        scope.launch(Dispatchers.Main) {
-            androidx.compose.runtime.snapshotFlow { Triple(Prefs.eqEnabled, Prefs.eqPreset, Prefs.eqBands) }
-                .collect { AudioFx.apply() }
         }
         fun route() {
             val device = AudioOutput.resolve(this)
@@ -407,7 +398,6 @@ class PlaybackService : MediaSessionService() {
         prefetchWriter?.cancel()
         brain?.stop()
         brain = null
-        AudioFx.release()
         AudioOutput.unwatch(this)
         scope.cancel()
         mediaSession?.run {

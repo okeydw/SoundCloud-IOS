@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -498,16 +499,14 @@ fun ArtistDetail(urn: String, offline: Boolean) {
     val context = LocalAppContext.current
     val scope = rememberCoroutineScope()
     val p = LocalGlass.current
-    var artist by remember(urn) { mutableStateOf<Artist?>(null) }
-    var playlists by remember(urn) { mutableStateOf<List<Playlist>>(emptyList()) }
+    val profile = remember(urn, offline) { ArtistProfileState(urn) }
     var tab by rememberSaveable(urn) { mutableStateOf(ArtistTab.Tracks) }
     var radioBusy by remember(urn) { mutableStateOf(false) }
     var blocking by remember(urn) { mutableStateOf(false) }
-    LaunchedEffect(urn) {
+    LaunchedEffect(urn, offline) {
         if (!offline) {
             launch { Follows.load(urn) }
             launch { Auras.load(urn) }
-            launch { WebProfiles.load(urn) }
         }
     }
 
@@ -519,20 +518,13 @@ fun ArtistDetail(urn: String, offline: Boolean) {
         }
     }
 
-    LaunchedEffect(urn, offline) {
-        if (offline) {
-            val u = Downloads.tracks().firstOrNull { it.user?.urn == urn }?.user
-            if (u != null) artist = Artist(urn = urn, username = u.username, avatar_url = u.avatar_url)
-        } else {
-            runCatching { Api.user(urn) }.onSuccess { artist = it }
-            runCatching { Api.userPlaylists(urn) }.onSuccess { playlists = it.collection.distinctBy { pl -> pl.urn } }
-        }
-    }
-    LaunchedEffect(pager.items) {
-        if (artist == null) pager.items.firstOrNull()?.user?.let { u -> artist = Artist(urn = urn, username = u.username, avatar_url = u.avatar_url) }
-    }
+    LaunchedEffect(profile) { if (!offline) profile.load() }
 
     val tracks = pager.items
+    val artist = profile.artist ?: tracks.firstOrNull { it.user?.urn == urn }?.user?.let {
+        Artist(urn = urn, username = it.username, avatar_url = it.avatar_url)
+    }
+    val playlists = profile.playlists
     val userAura = userAuraColors(Auras.of(urn))
     val aura = remember(tracks, p.accent, userAura) { userAura ?: auraColors(tracks, p.accent) }
     val catalog = remember(tracks) { if (offline) null else CatalogRepo.findCatalogFor(urn, tracks) }
@@ -557,7 +549,7 @@ fun ArtistDetail(urn: String, offline: Boolean) {
                         )
                     }
                     Spacer(Modifier.height(12.dp))
-                    Eyebrow(stringResource(Res.string.artist_label), color = p.text3)
+                    Eyebrow(stringResource(Res.string.catalog_sc_profile), color = p.text3)
                     Spacer(Modifier.height(4.dp))
                     GradientText(artist?.username ?: "…", GlassType.hero.copy(textAlign = TextAlign.Center), listOf(p.text) + aura, maxLines = 2)
                     val a = artist
@@ -619,11 +611,12 @@ fun ArtistDetail(urn: String, offline: Boolean) {
                     val canBlock = !offline && Prefs.userUrn != null && scId != null && scId != scIdOf(Prefs.userUrn)
                     if (canFollow || canBlock || catalog != null) {
                         Spacer(Modifier.height(12.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ArtistActions {
                             if (canFollow) {
                                 val following = Follows.isFollowing(urn) == true
                                 GlassChip(
                                     stringResource(if (following) Res.string.unfollow else Res.string.follow),
+                                    modifier = Modifier.heightIn(min = 48.dp),
                                     icon = if (following) Res.drawable.ic_following else Res.drawable.ic_follow,
                                     active = following,
                                     onClick = {
@@ -634,12 +627,13 @@ fun ArtistDetail(urn: String, offline: Boolean) {
                                 )
                             }
                             catalog?.let { c ->
-                                GlassChip(stringResource(Res.string.catalog_card), icon = Res.drawable.ic_mic, onClick = { nav.push(Screen.CatalogS(c.id)) })
+                                GlassChip(stringResource(Res.string.catalog_card), modifier = Modifier.heightIn(min = 48.dp), icon = Res.drawable.ic_mic, onClick = { nav.push(Screen.CatalogS(c.id)) })
                             }
                             if (canBlock && scId != null) {
                                 val blocked = BlockedArtists.isBlocked("user", scId)
                                 GlassChip(
                                     stringResource(if (blocked) Res.string.unblock else Res.string.block),
+                                    modifier = Modifier.heightIn(min = 48.dp),
                                     icon = Res.drawable.ic_block,
                                     iconTint = Color(0xFFFF5A5F),
                                     active = blocked,
@@ -648,7 +642,7 @@ fun ArtistDetail(urn: String, offline: Boolean) {
                             }
                         }
                     }
-                    val webs = WebProfiles.of(urn)
+                    val webs = profile.links
                     if (webs.isNotEmpty()) {
                         Spacer(Modifier.height(10.dp))
                         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -660,6 +654,11 @@ fun ArtistDetail(urn: String, offline: Boolean) {
                 }
             }
             Spacer(Modifier.height(14.dp))
+        }
+        if (!offline && (profile.loading || profile.failed)) {
+            item(key = "artist:status") {
+                ArtistProfileStatus(profile) { scope.launch { profile.load() } }
+            }
         }
         if (playlists.isNotEmpty()) {
             item(key = "seg") {
@@ -682,15 +681,14 @@ fun ArtistDetail(urn: String, offline: Boolean) {
             }
         } else {
             trackItems(tracks, onPlay = { t -> Playback.play(controller, tracks, t, source = "artist:$urn", more = { pager.all() }) }, dimUndownloaded = offline)
-            if (pager.hasMore && tracks.isNotEmpty()) {
+            if (pager.hasMore || pager.error != null) {
                 item(key = "more") {
-                    LaunchedEffect(tracks.size) { pager.loadMore() }
-                    Spinner()
+                    TrackPageFooter(pager)
                 }
             }
             if (tracks.isEmpty()) {
                 item(key = "empty") {
-                    if (pager.loading) SkeletonRows() else EmptyState(Res.drawable.ic_music, stringResource(Res.string.artist_no_tracks))
+                    if (pager.loading) SkeletonRows() else EmptyState(Res.drawable.ic_music, stringResource(if (pager.error != null) networkErrorText() else Res.string.artist_no_tracks))
                 }
             }
         }
@@ -773,7 +771,7 @@ fun GenreDetail(key: String, label: String, offline: Boolean) {
     val context = LocalAppContext.current
     val pager = rememberPaged("genre:$key:$offline") { page, fresh -> Library.genrePage(page, fresh, offline) }
     LaunchedEffect(pager.items.size, pager.hasMore, pager.loading) {
-        if (pager.hasMore && !pager.loading && pager.items.size < 1000) pager.loadMore()
+        if (pager.hasMore && pager.error == null && !pager.loading && pager.items.size < 1000) pager.loadMore()
     }
     val fromPrint = remember(Library.soundprint, key) { Library.soundprint.filter { genresMatch(it, key) } }
     val tracks = (pager.items.filter { genresMatch(it, key) } + fromPrint).distinctBy { it.urn }

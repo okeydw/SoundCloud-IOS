@@ -186,6 +186,14 @@ open SoundCloud.xcodeproj                                         # Kotlin 框�
 ---
 
 
+## 统计
+
+<p align="center">
+<img src="https://zxcloli666.github.io/download-history/okeydw_SoundCloud-iOS.svg" alt="下载历史" />
+</p>
+
+---
+
 ## 许可证
 
 MIT。详见 [LICENSE](../../LICENSE) 文件。

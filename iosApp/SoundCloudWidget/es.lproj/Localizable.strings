@@ -1,0 +1,4 @@
+"widget_name" = "Reproductor";
+"widget_desc" = "Pista actual y controles";
+"widget_idle" = "No se reproduce nada";
+"widget_open" = "Toca para abrir SoundCloud";

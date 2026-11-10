@@ -1,0 +1,4 @@
+"widget_name" = "Player";
+"widget_desc" = "Aktueller Titel und Steuerung";
+"widget_idle" = "Nichts wird abgespielt";
+"widget_open" = "Tippen, um SoundCloud zu öffnen";

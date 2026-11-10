@@ -10,7 +10,11 @@ data class PagedTracks(
     val page: Int = 0,
     val page_size: Int = 0,
     val has_more: Boolean = false,
-)
+    val sync: CollectionSync? = null,
+) {
+    val snapshotReady: Boolean get() = sync?.snapshotReady != false
+    val complete: Boolean get() = !has_more && snapshotReady
+}
 
 data class ApkAsset(val name: String, val url: String, val size: Long)
 
@@ -91,7 +95,11 @@ data class PagedPlaylists(
     val page: Int = 0,
     val page_size: Int = 0,
     val has_more: Boolean = false,
-)
+    val sync: CollectionSync? = null,
+) {
+    val snapshotReady: Boolean get() = sync?.snapshotReady != false
+    val complete: Boolean get() = !has_more && snapshotReady
+}
 
 @Serializable
 data class Playlist(
@@ -195,6 +203,7 @@ data class LyricsResponse(
     val plainText: String? = null,
     val source: String? = null,
     val language: String? = null,
+    val status: String? = null,
 )
 
 data class LyricLine(val timeMs: Long, val text: String)
@@ -206,14 +215,21 @@ data class VibeSearchResponse(
 )
 
 fun parseLrc(lrc: String): List<LyricLine> {
-    val re = Regex("^\\[(\\d{1,2}):(\\d{2})[.:](\\d{2,3})]\\s*(.*)")
-    return lrc.lines().mapNotNull { raw ->
-        val m = re.find(raw.trim()) ?: return@mapNotNull null
-        val (mm, ss, frac, text) = m.destructured
-        if (text.isBlank()) return@mapNotNull null
-        val ms = mm.toLong() * 60_000L + ss.toLong() * 1000L + frac.padEnd(3, '0').take(3).toLong()
-        LyricLine(ms, text.trim())
-    }
+    val tag = Regex("^\\[(\\d{1,3}):(\\d{2})(?:[.:](\\d{1,3}))?]")
+    val offset = Regex("(?im)^\\s*\\[offset:\\s*([+-]?\\d+)\\s*]").find(lrc)
+        ?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+    return lrc.lineSequence().flatMap { raw ->
+        var rest = raw.trim()
+        val times = mutableListOf<Long>()
+        while (true) {
+            val match = tag.find(rest) ?: break
+            val (minutes, seconds, fraction) = match.destructured
+            times += (minutes.toLong() * 60_000 + seconds.toLong() * 1000 +
+                fraction.padEnd(3, '0').toLong() - offset).coerceAtLeast(0)
+            rest = rest.substring(match.value.length).trimStart()
+        }
+        times.map { LyricLine(it, rest.trim()) }
+    }.sortedBy { it.timeMs }.toList()
 }
 
 @Serializable

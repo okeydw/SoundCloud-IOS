@@ -21,3 +21,4 @@ docs/redesign
 docs/features
 *.hprof
 .gradle-cache/
+/HANDOFF.md

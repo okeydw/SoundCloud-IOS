@@ -186,6 +186,14 @@ Protocolo de inicio de sesión por QR: [qr-link-protocol.md](https://github.com/
 ---
 
 
+## Estadísticas
+
+<p align="center">
+<img src="https://zxcloli666.github.io/download-history/okeydw_SoundCloud-iOS.svg" alt="Historial de descargas" />
+</p>
+
+---
+
 ## Licencia
 
 MIT. Detalles en el archivo [LICENSE](../../LICENSE).

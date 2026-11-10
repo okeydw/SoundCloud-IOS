@@ -91,7 +91,8 @@ fun PlayerGlass(controller: QueuePlayer, onClose: () -> Unit) {
     var showQueue by remember { mutableStateOf(false) }
     var picking by remember { mutableStateOf<Track?>(null) }
     val dragY = remember { Animatable(0f) }
-    val dragX = remember { Animatable(0f) }
+    val preview = rememberQueuePreview(controller)
+    val swipe = rememberTrackSwipeFade(preview)
     val heart = remember(urn) { Animatable(0f) }
 
     PlatformBackHandler(onBack = onClose)
@@ -192,33 +193,17 @@ fun PlayerGlass(controller: QueuePlayer, onClose: () -> Unit) {
                 Box(
                     Modifier
                         .then(if (immersive) Modifier.fillMaxWidth().height(artSide) else Modifier.size(artSide))
-                        .offset { IntOffset(dragX.value.roundToInt(), 0) }
-                        .graphicsLayer {
-                            val f = (abs(dragX.value) / (size.width.coerceAtLeast(1f))).coerceIn(0f, 1f)
-                            alpha = 1f - 0.35f * f
-                            rotationZ = dragX.value / size.width.coerceAtLeast(1f) * 6f
-                        }
                         .then(if (immersive) Modifier else Modifier.shadow(40.dp, RoundedCornerShape(30.dp), clip = false, ambientColor = glow, spotColor = glow))
-                        .pointerInput(urn) {
+                        .pointerInput(urn, preview) {
                             val threshold = with(density) { 90.dp.toPx() }
-                            var total = 0f
                             detectHorizontalDragGestures(
-                                onDragStart = { total = 0f },
-                                onDragEnd = {
-                                    scope.launch {
-                                        when {
-                                            total < -threshold -> controller.next()
-                                            total > threshold -> controller.previous()
-                                        }
-                                        dragX.animateTo(0f, tween(380, easing = EaseApple))
-                                    }
+                                onDragStart = {
+                                    val travel = size.width / 0.7f
+                                    swipe.begin(preview, threshold, travel, travel)
                                 },
-                                onDragCancel = { scope.launch { dragX.animateTo(0f) } },
-                                onHorizontalDrag = { change, dx ->
-                                    change.consume()
-                                    total += dx
-                                    scope.launch { dragX.snapTo(total * 0.7f) }
-                                },
+                                onDragEnd = { swipe.finish(controller, slide = true) },
+                                onDragCancel = { swipe.cancel() },
+                                onHorizontalDrag = { change, dx -> change.consume(); swipe.drag(dx) },
                             )
                         }
                         .pointerInput(urn) {
@@ -233,7 +218,12 @@ fun PlayerGlass(controller: QueuePlayer, onClose: () -> Unit) {
                             })
                         },
                 ) {
-                    if (!immersive) Artwork(art, Modifier.matchParentSize(), corner = 30.dp)
+                    if (!immersive) {
+                        SlidingTrack(swipe, preview.current, Modifier.matchParentSize(), tilt = true) { md ->
+                            Artwork(md.artModel(), Modifier.size(artSide), corner = 30.dp)
+                        }
+                    }
+
                     Icon(
                         painterResource(Res.drawable.ic_heart_filled),
                         null,
@@ -254,29 +244,39 @@ fun PlayerGlass(controller: QueuePlayer, onClose: () -> Unit) {
             Spacer(Modifier.weight(0.5f))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
+                SlidingTrack(swipe, preview.current, Modifier.weight(1f)) { md ->
+                  Column {
                     Text(
-                        NowPlaying.title,
+                        md.title,
                         style = GlassType.title,
                         color = p.text,
                         maxLines = 1,
                         modifier = Modifier.basicMarquee(),
                     )
                     Spacer(Modifier.height(4.dp))
-                    val artistUrn = NowPlaying.artistUrn
-                    Text(
-                        NowPlaying.artist,
-                        style = GlassType.body.copy(fontSize = 16.sp),
-                        color = p.text2,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = if (artistUrn != null && !Prefs.offline) {
-                            Modifier.clip(RoundedCornerShape(8.dp)).clickable {
+                    val artistTrack = currentTrack()
+                    if (artistTrack != null && (swipe.window == null || md === swipe.window?.current)) {
+                        TrackArtistNames(
+                            artistTrack,
+                            style = GlassType.body.copy(fontSize = 16.sp),
+                            color = p.text2,
+                            enabled = !Prefs.offline && swipe.window == null,
+                            fallbackName = md.artistLinks().joinToString(", ") { it.name },
+                            onOpen = { target ->
                                 onClose()
-                                nav.push(Screen.ArtistS(artistUrn))
-                            }
-                        } else Modifier,
-                    )
+                                target.open()
+                            },
+                        )
+                    } else {
+                        Text(
+                            md.artistLinks().joinToString(", ") { it.name },
+                            style = GlassType.body.copy(fontSize = 16.sp),
+                            color = p.text2,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
                 }
                 Spacer(Modifier.width(12.dp))
                 val liked = urn != null && Likes.isLiked(urn)
@@ -314,7 +314,7 @@ fun PlayerGlass(controller: QueuePlayer, onClose: () -> Unit) {
             BottomDock(
                 lyrics = !Prefs.offline,
                 radioBusy = Playback.radioBusy,
-                eqOn = Prefs.eqEnabled,
+                eqOn = Prefs.eqEnabled || SpeedPitch.active,
                 disliked = urn != null && Dislikes.isDisliked(urn),
                 onLyrics = { showLyrics = true },
                 onRadio = {

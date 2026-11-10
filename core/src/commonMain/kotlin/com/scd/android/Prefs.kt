@@ -97,19 +97,44 @@ object Prefs {
         private set
     var hqStreaming by mutableStateOf(true)
         private set
+    const val QUALITY_AUTO = "auto"
+    const val QUALITY_SQ = "sq"
+    const val QUALITY_HQ = "hq"
+    const val QUALITY_UQ = "uq"
+    val streamQualities = listOf(QUALITY_AUTO, QUALITY_SQ, QUALITY_HQ, QUALITY_UQ)
+
+    var streamQuality by mutableStateOf(QUALITY_AUTO)
+        private set
+
+    var playbackRate by mutableStateOf(1f)
+        private set
+    var pitchSemitones by mutableStateOf(0f)
+        private set
+    var pitchMode by mutableStateOf("auto")
+        private set
+
+    var themeFontPath by mutableStateOf<String?>(null)
+        private set
+    var themeFontName by mutableStateOf("")
+        private set
     var apiStar by mutableStateOf(true)
         private set
     var anonFallback by mutableStateOf(true)
         private set
-    var downloadHq by mutableStateOf(true)
+    var downloadQuality by mutableStateOf(QUALITY_AUTO)
         private set
+    val downloadHq: Boolean get() = downloadQuality != QUALITY_SQ
     var autoCacheLikes by mutableStateOf(false)
         private set
     var eqEnabled by mutableStateOf(false)
         private set
-    var eqPreset by mutableStateOf(-1)
+    var eqGains by mutableStateOf(EqCurve.FLAT)
         private set
-    var eqBands by mutableStateOf("")
+    var eqPresetId by mutableStateOf(EqPresets.FLAT)
+        private set
+    var eqPreamp by mutableStateOf<Double?>(null)
+        private set
+    var eqCustom by mutableStateOf("")
         private set
     var streamDebug by mutableStateOf(false)
         private set
@@ -144,10 +169,6 @@ object Prefs {
     var carEq by mutableStateOf("")
         private set
     var carScenarios by mutableStateOf("")
-        private set
-    var eqUser by mutableStateOf("")
-        private set
-    var eqHidden by mutableStateOf<Set<Int>>(emptySet())
         private set
     var crossfadeSeconds by mutableStateOf(3)
         private set
@@ -201,13 +222,29 @@ object Prefs {
         playBlocked = sp.getBoolean("play_blocked", false)
         star = sp.getBoolean("star", false)
         hqStreaming = sp.getBoolean("hq_streaming", true)
+        streamQuality = sp.getString("stream_quality", null)?.takeIf { it in streamQualities }
+            ?: if (star && !hqStreaming) QUALITY_SQ else QUALITY_AUTO
+        hqStreaming = streamQuality != QUALITY_SQ
+        playbackRate = SpeedPitch.clampRate(sp.getFloat("playback_rate", SpeedPitch.RATE_DEFAULT))
+        pitchSemitones = SpeedPitch.clampSemitones(sp.getFloat("pitch_semitones", 0f))
+        pitchMode = sp.getString("pitch_mode", SpeedPitch.MODE_AUTO)
+            ?.takeIf { it == SpeedPitch.MODE_AUTO || it == SpeedPitch.MODE_MANUAL } ?: SpeedPitch.MODE_AUTO
+        themeFontPath = sp.getString("theme_font_path", null)?.takeIf { fileExists(it) }
+        themeFontName = if (themeFontPath != null) sp.getString("theme_font_name", "") ?: "" else ""
         apiStar = sp.getBoolean("api_star", true)
         anonFallback = sp.getBoolean("anon_fallback", true)
-        downloadHq = sp.getBoolean("download_hq", true)
+        downloadQuality = DownloadQuality.restore(sp.getString("download_quality", null), sp.getBoolean("download_hq", true))
         autoCacheLikes = sp.getBoolean("auto_cache_likes", false)
         eqEnabled = sp.getBoolean("eq_enabled", false)
-        eqPreset = sp.getInt("eq_preset", -1)
-        eqBands = sp.getString("eq_bands", "") ?: ""
+        eqGains = EqCurve.bandGains((sp.getString("eq_gains", "") ?: "").split(',').mapNotNull { it.trim().toDoubleOrNull() }).toList()
+        eqPresetId = sp.getString("eq_preset_id", EqPresets.FLAT)?.takeIf { it.isNotBlank() } ?: EqPresets.FLAT
+        eqPreamp = sp.getString("eq_preamp", "")?.toDoubleOrNull()?.takeIf { it.isFinite() }
+        eqCustom = sp.getString("eq_custom", "") ?: ""
+        val legacyEq = if (!sp.contains("eq_gains") && (sp.contains("eq_bands") || sp.contains("eq_user") || sp.contains("eq_preset"))) {
+            EqLegacy(sp.getInt("eq_preset", -1), sp.getString("eq_bands", "") ?: "", sp.getString("eq_user", "") ?: "")
+        } else {
+            null
+        }
         streamDebug = sp.getBoolean("stream_debug", false)
         prefetchWifiOnly = sp.getBoolean("prefetch_wifi_only", false)
         streamTags = sp.getBoolean("stream_tags", false)
@@ -225,8 +262,6 @@ object Prefs {
         carAutostart = sp.getBoolean("car_autostart", true)
         carEq = sp.getString("car_eq", "") ?: ""
         carScenarios = sp.getString("car_scenarios", "") ?: ""
-        eqUser = sp.getString("eq_user", "") ?: ""
-        eqHidden = (sp.getString("eq_hidden", "") ?: "").split(',').mapNotNull { it.trim().toIntOrNull() }.toSet()
         crossfadeSeconds = sp.getInt("crossfade_seconds", 3).coerceIn(1, 30)
         launcherIcon = sp.getString("launcher_icon", "") ?: ""
         ymToken = sp.getString("ym_token", "") ?: ""
@@ -245,6 +280,11 @@ object Prefs {
         storageFirst = sp.getBoolean("storage_first", true)
         shuffleOn = sp.getBoolean("shuffle_on", false)
         repeatMode = sp.getInt("repeat_mode", 0)
+        if (legacyEq != null) {
+            EqPresets.migrate(legacyEq)
+            sp.edit().remove("eq_preset").remove("eq_bands").remove("eq_user").remove("eq_hidden").apply()
+        }
+        EqLive.publish(eqEnabled, eqGains, eqPreamp)
     }
 
     fun changeEffects(value: String) {
@@ -334,16 +374,6 @@ object Prefs {
     fun changeCarEq(value: String) {
         carEq = value
         sp.edit().putString("car_eq", value).apply()
-    }
-
-    fun changeEqUser(value: String) {
-        eqUser = value
-        sp.edit().putString("eq_user", value).apply()
-    }
-
-    fun changeEqHidden(value: Set<Int>) {
-        eqHidden = value
-        sp.edit().putString("eq_hidden", value.sorted().joinToString(",")).apply()
     }
 
     fun changeCrossfadeSeconds(value: Int) {
@@ -448,16 +478,48 @@ object Prefs {
         sp.edit().putBoolean("stream_tags", value).apply()
     }
 
-    fun changeHqStreaming(value: Boolean) {
-        if (!star) return
-        hqStreaming = value
-        sp.edit().putBoolean("hq_streaming", value).apply()
+    fun changePlaybackRate(value: Float) {
+        val v = SpeedPitch.clampRate(value)
+        if (v == playbackRate) return
+        playbackRate = v
+        sp.edit().putFloat("playback_rate", v).apply()
     }
 
-    fun changeDownloadHq(value: Boolean) {
-        downloadHq = value
-        sp.edit().putBoolean("download_hq", value).apply()
+    fun changePitchSemitones(value: Float) {
+        val v = SpeedPitch.clampSemitones(value)
+        if (v == pitchSemitones) return
+        pitchSemitones = v
+        sp.edit().putFloat("pitch_semitones", v).apply()
     }
+
+    fun changePitchMode(value: String) {
+        if (value != SpeedPitch.MODE_AUTO && value != SpeedPitch.MODE_MANUAL) return
+        pitchMode = value
+        sp.edit().putString("pitch_mode", value).apply()
+    }
+
+    fun changeThemeFont(path: String?, name: String) {
+        themeFontPath = path
+        themeFontName = if (path == null) "" else name
+        sp.edit().putString("theme_font_path", path).putString("theme_font_name", themeFontName).apply()
+    }
+
+    fun changeStreamQuality(value: String) {
+        if (value !in streamQualities) return
+        streamQuality = value
+        hqStreaming = value != QUALITY_SQ
+        sp.edit().putString("stream_quality", value).putBoolean("hq_streaming", hqStreaming).apply()
+    }
+
+    fun changeHqStreaming(value: Boolean) = changeStreamQuality(if (value) QUALITY_AUTO else QUALITY_SQ)
+
+    fun changeDownloadQuality(value: String) {
+        if (value !in streamQualities) return
+        downloadQuality = value
+        sp.edit().putString("download_quality", value).putBoolean("download_hq", value != QUALITY_SQ).apply()
+    }
+
+    fun changeDownloadHq(value: Boolean) = changeDownloadQuality(if (value) QUALITY_AUTO else QUALITY_SQ)
 
     fun changeAnonFallback(value: Boolean) {
         anonFallback = value
@@ -469,15 +531,29 @@ object Prefs {
         sp.edit().putBoolean("auto_cache_likes", value).apply()
     }
 
-    fun changeEq(enabled: Boolean, preset: Int, bands: String) {
-        eqEnabled = enabled
-        eqPreset = preset
-        eqBands = bands
+    fun changeEqEnabled(on: Boolean) {
+        eqEnabled = on
+        sp.edit().putBoolean("eq_enabled", on).apply()
+        EqLive.publish(eqEnabled, eqGains, eqPreamp)
+    }
+
+    fun changeEqCurve(gains: List<Double>, presetId: String, preamp: Double?) {
+        val g = EqCurve.bandGains(gains).toList()
+        val pre = preamp?.takeIf { it.isFinite() }?.coerceIn(EqCurve.PREAMP_MIN, EqCurve.PREAMP_MAX)
+        eqGains = g
+        eqPresetId = presetId
+        eqPreamp = pre
         sp.edit()
-            .putBoolean("eq_enabled", enabled)
-            .putInt("eq_preset", preset)
-            .putString("eq_bands", bands)
+            .putString("eq_gains", g.joinToString(","))
+            .putString("eq_preset_id", presetId)
+            .putString("eq_preamp", pre?.toString() ?: "")
             .apply()
+        EqLive.publish(eqEnabled, g, pre)
+    }
+
+    fun changeEqCustom(value: String) {
+        eqCustom = value
+        sp.edit().putString("eq_custom", value).apply()
     }
 
     fun changeApiStar(value: Boolean) {
@@ -486,6 +562,7 @@ object Prefs {
     }
 
     fun saveStar(value: Boolean) {
+        if (star != value) QualityLadder.forgetRefusal()
         star = value
         sp.edit().putBoolean("star", value).apply()
     }

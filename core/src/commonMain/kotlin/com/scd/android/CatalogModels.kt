@@ -65,6 +65,17 @@ data class CatalogArtist(
     val related_artists: List<RelatedArtist> = emptyList(),
 ) {
     val mainScUsers: List<String> get() = sc_accounts.filter { it.role == "main" }.map { it.sc_user_id }
+
+    val linkedScAccounts: List<ArtistScAccount>
+        get() = sc_accounts.mapNotNull { account ->
+            soundCloudUserId(account.sc_user_id)?.let { account.copy(sc_user_id = it, role = account.role.trim().lowercase()) }
+        }.sortedWith(compareBy<ArtistScAccount> {
+            when (it.role) {
+                "main" -> 0
+                "demo" -> 1
+                else -> 2
+            }
+        }.thenByDescending { it.verified }).distinctBy { it.sc_user_id }
 }
 
 @Serializable

@@ -22,6 +22,9 @@ kotlin {
     }
 
     sourceSets {
+        androidUnitTest.dependencies {
+            implementation("junit:junit:4.13.2")
+        }
         commonMain.dependencies {
             api(project(":core"))
             api(compose.runtime)

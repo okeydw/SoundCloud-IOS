@@ -186,6 +186,14 @@ Protocole de connexion par QR : [qr-link-protocol.md](https://github.com/zxcloli
 ---
 
 
+## Statistiques
+
+<p align="center">
+<img src="https://zxcloli666.github.io/download-history/okeydw_SoundCloud-iOS.svg" alt="Historique des téléchargements" />
+</p>
+
+---
+
 ## Licence
 
 MIT. Détails dans le fichier [LICENSE](../../LICENSE).
