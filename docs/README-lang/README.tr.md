@@ -21,7 +21,7 @@
 <p align="center">
 <b>[<a href="https://github.com/zxcloli666/SoundCloud-Desktop">Masaüstü sürümü</a>] · [<a href="https://github.com/okeydw/SoundCloud-Android">Android sürümü</a>]</b><br>
 <b>iPhone ve iPad için resmi olmayan SoundCloud istemcisi</b><br>
-Reklamsız · Captcha yok · Sansür yok · Rusya'da kullanılabilir
+Reklamsız · Captcha yok · Sansür yok
 </p>
 
 <p align="center">
