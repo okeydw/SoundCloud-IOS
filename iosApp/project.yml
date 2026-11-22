@@ -5,8 +5,8 @@ options:
   createIntermediateGroups: true
 settings:
   base:
-    MARKETING_VERSION: "0.4.6"
-    CURRENT_PROJECT_VERSION: "12"
+    MARKETING_VERSION: "0.4.7"
+    CURRENT_PROJECT_VERSION: "14"
 targets:
   SoundCloud:
     type: application
@@ -38,6 +38,7 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         UIRequiresFullScreen: true
+        CFBundleLocalizations: [en, ru, be, de, es, fr, ko, tr, zh-Hans]
         CADisableMinimumFrameDurationOnPhone: true
         ITSAppUsesNonExemptEncryption: false
         NSCameraUsageDescription: The camera is used to scan sign-in QR codes.
@@ -51,6 +52,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: SoundCloud.entitlements
         PRODUCT_NAME: SoundCloud
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "Blue Orange"
         TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_VERSION: "5.0"
         ENABLE_BITCODE: NO
@@ -67,6 +69,10 @@ targets:
           - SoundCloudUi
           - -framework
           - AVFoundation
+          - -framework
+          - PhotosUI
+          - -framework
+          - AVKit
           - -framework
           - MediaPlayer
           - -framework

@@ -14,7 +14,7 @@ class QualityAudioFetcherTest {
     private fun response(url: String, quality: String?, status: Int = 200, bytes: ByteArray = audio) =
         HttpResponse(status, quality?.let { mapOf("x-audio-quality" to it) }.orEmpty(), bytes, url)
     private fun fetcher(request: suspend (String) -> HttpResponse?) =
-        QualityAudioFetcher(request, { audio }, { it.contentEquals(audio) })
+        QualityAudioFetcher(request, { audio }, { bytes -> bytes.takeIf { it.contentEquals(audio) } })
     @Test fun anSqUpgradeKeepsHqReturnedByTheUqRoute() = runBlocking {
         val asked = mutableListOf<String>()
         val got = fetcher { url ->
@@ -23,6 +23,22 @@ class QualityAudioFetcherTest {
         }.fetch(listOf(base), emptyList(), null, Quality.UQ, above = Quality.SQ)
         assertEquals(Quality.HQ, got?.tier)
         assertEquals(listOf("$base?hq=true&quality=uq"), asked)
+    }
+
+    @Test fun keepsPreparedBytesFromBothSources() = runBlocking {
+        val prepared = byteArrayOf(9, 8)
+        val descriptor = """{"candidates":[{"kind":"progressive","quality":"hq","url":"https://example.test/hq"}]}""".encodeToByteArray()
+        for (direct in listOf(true, false)) {
+            val result = QualityAudioFetcher({ url ->
+                when {
+                    direct -> response(url, "hq")
+                    "/download/" in url -> response(url, null, bytes = descriptor)
+                    else -> response(url, null, 404)
+                }
+            }, { audio }, { prepared }).fetch(listOf(base), emptyList(), null, Quality.HQ)
+            assertArrayEquals(prepared, result?.bytes)
+            assertEquals(Quality.HQ, result?.tier)
+        }
     }
 
     @After fun reset() = QualityLadder.forgetRefusal()

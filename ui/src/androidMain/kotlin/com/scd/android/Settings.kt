@@ -434,6 +434,12 @@ actual fun SettingsScreen(
                         stringResource(R.string.immersive_artwork_hint),
                         Prefs.immersiveArtwork,
                     ) { Prefs.changeImmersiveArtwork(it) }
+                    Spacer(Modifier.height(8.dp))
+                    SettingSwitch(
+                        stringResource(R.string.hide_title_artists),
+                        stringResource(R.string.hide_title_artists_hint),
+                        Prefs.hideTitleArtists,
+                    ) { Prefs.changeHideTitleArtists(it) }
 
                     Spacer(Modifier.height(8.dp))
                     var iconOpen by remember { mutableStateOf(false) }
@@ -718,11 +724,6 @@ actual fun SettingsScreen(
                     }
 
                     Spacer(Modifier.height(8.dp))
-                    SettingSwitch(
-                        stringResource(R.string.play_blocked),
-                        stringResource(R.string.play_blocked_hint),
-                        Prefs.playBlocked,
-                    ) { Prefs.changePlayBlocked(it) }
 
                     Spacer(Modifier.height(8.dp))
                     SettingSwitch(

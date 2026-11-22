@@ -405,7 +405,7 @@ private fun AuthorStatsList(mine: AuthorStats?, failed: Boolean, onPlay: (List<T
                 TrackArtwork(Api.artworkUrl(t.artwork_url, "t120x120"), 44.dp)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(t.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+                    Text(t.displayTitle, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
                     Text(formatDuration(t.displayDuration), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1)
                 }
                 if (mine.counted) {
@@ -491,7 +491,7 @@ fun StatsScreen(onBack: () -> Unit, onPlay: (List<Track>, Track) -> Unit) {
                     TrackArtwork(Api.artworkUrl(t.artworkUrl, "t120x120"), 44.dp)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(t.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+                        Text(formattedTrackTitle(t.title, t.artistName), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
                         Text(t.artistName, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1)
                     }
                     Text(stringResource(R.string.stats_plays_n, t.plays.toInt()), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)

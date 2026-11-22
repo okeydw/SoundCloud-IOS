@@ -22,7 +22,7 @@ private fun report(what: String) {
     if (imageErrors++ < 20) Logs.add("img", what)
 }
 
-class ScImageFetcher(private val url: String) : Fetcher {
+class ScImageFetcher(private val url: String, private val fileSystem: FileSystem) : Fetcher {
     override suspend fun fetch(): FetchResult {
         val urls = if (ImageRoute.proxied(url)) {
             val (_, value) = Api.imageProxyTarget(url)
@@ -48,7 +48,7 @@ class ScImageFetcher(private val url: String) : Fetcher {
                 if (!direct) ImageRoute.ok(candidate)
                 if (i > 0) ImageRoute.report("served by ${if (direct) "sndcdn" else ImageRoute.base(candidate).substringAfter("://")}")
                 return SourceFetchResult(
-                    source = ImageSource(Buffer().write(res.body), FileSystem.SYSTEM),
+                    source = ImageSource(Buffer().write(res.body), fileSystem),
                     mimeType = res.header("content-type"),
                     dataSource = DataSource.NETWORK,
                 )
@@ -66,7 +66,7 @@ class ScImageFetcher(private val url: String) : Fetcher {
         override fun create(data: Uri, options: Options, imageLoader: ImageLoader): Fetcher? {
             val scheme = data.scheme ?: return null
             if (scheme != "http" && scheme != "https") return null
-            return ScImageFetcher(data.toString())
+            return ScImageFetcher(data.toString(), options.fileSystem)
         }
     }
 }

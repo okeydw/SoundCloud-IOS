@@ -20,4 +20,4 @@ object Dirs {
 }
 
 fun isPlayable(t: Track): Boolean =
-    !t.starLocked && (!t.unavailable || Prefs.playBlocked) && (!t.external || Downloads.isDownloaded(t.urn))
+    (!t.unavailable || Prefs.playBlocked) && (!t.external || Downloads.isDownloaded(t.urn))

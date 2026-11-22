@@ -149,24 +149,28 @@ object LinkClaims {
 }
 
 object Startup {
+    private var job: kotlinx.coroutines.Job? = null
     @Volatile
     private var done = false
 
     fun reset() {
+        job?.cancel()
+        job = null
         done = false
     }
 
     fun run(context: PlatformContext) {
         if (done) return
         done = true
+        HistoryOutbox.kick()
         WaveState.restore()
         Tiles.restore()
         val app = context
-        AppScope.scope.launch { Dislikes.seed() }
-        AppScope.scope.launch { BlockedArtists.refresh() }
-        AppScope.scope.launch { Auras.loadMine() }
-        if (Prefs.offline) return
-        AppScope.scope.launch {
+        job = AppScope.scope.launch {
+            launch { Dislikes.seed() }
+            launch { BlockedArtists.refresh() }
+            launch { Auras.loadMine() }
+            if (Prefs.offline) return@launch
             launch { runCatching { Api.subscription() }.onSuccess { Prefs.saveStar(it.premium) } }
             launch {
                 runCatching { Api.me() }.onSuccess { me ->
@@ -175,10 +179,7 @@ object Startup {
             }
             launch {
                 delay(600)
-                val since = Likes.snapshot()
-                runCatching { Api.likedTracks(0, 100, fresh = true) }.onSuccess { res ->
-                    if (res.complete) Likes.replaceAll(res.collection, since) else Likes.seed(res.collection)
-                }
+                runCatching { Library.refreshLikes() }
                 delay(5_000)
                 PlatformHooks.afterLikesSynced(app)
             }
@@ -187,7 +188,6 @@ object Startup {
                 LocalPlaylists.sync()
                 runCatching { Api.likedPlaylists() }
                 delay(400)
-                runCatching { Api.likedTracks() }
                 runCatching { Api.history() }
                 delay(15_000)
                 PlaylistPrefetch.run()
@@ -251,6 +251,7 @@ object Health {
                     PlaylistPrefetch.run()
                 }
             }
+            if (net && ok && !Prefs.offline) Likes.sync()
             kotlinx.coroutines.withTimeoutOrNull(if (netLostAt != 0L || serverLostAt != 0L || (auto && Prefs.offline)) 4_000L else 12_000L) { kicks.receive() }
         }
     }
@@ -266,7 +267,7 @@ object Updates {
         if (checked || Prefs.offline) return
         checked = true
         val current = appVersionName(context) ?: return
-        val latest = Api.latestRelease() ?: return
+        val latest = Api.latestRelease(ios = appEdition(context) == "ios") ?: return
         if (isNewerVersion(latest.tag, current)) {
             Updater.asset = Updater.pick(context, latest.assets)
             available = latest.tag to latest.url

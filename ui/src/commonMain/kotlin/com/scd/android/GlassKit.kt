@@ -27,8 +27,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -166,6 +168,7 @@ fun GlassChip(
     icon: DrawableResource? = null,
     iconTint: Color = LocalGlass.current.accent,
     active: Boolean = false,
+    compact: Boolean = false,
     onClick: (() -> Unit)? = null,
 ) {
     val p = LocalGlass.current
@@ -173,7 +176,7 @@ fun GlassChip(
         modifier
             .glass(CircleShape, p, shadow = 0.dp, tint = if (active) p.glow else Color.Unspecified, borderColor = if (active) p.glowStrong else Color.Unspecified, sheen = false)
             .then(if (onClick != null) Modifier.pressable(onClick = onClick) else Modifier)
-            .padding(horizontal = 12.dp, vertical = 7.dp),
+            .padding(horizontal = if (compact) 8.dp else 12.dp, vertical = if (compact) 4.dp else 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (dot != null) {
@@ -235,7 +238,7 @@ fun LabeledOrb(icon: DrawableResource, label: String, active: Boolean = false, t
 }
 
 @Composable
-fun PlayOrb(playing: Boolean, size: Dp, modifier: Modifier = Modifier, onClick: () -> Unit) {
+fun PlayOrb(playing: Boolean, size: Dp, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
     val p = LocalGlass.current
     val fx = LocalFx.current
     val ring = if (playing && fx.pulse) {
@@ -260,7 +263,8 @@ fun PlayOrb(playing: Boolean, size: Dp, modifier: Modifier = Modifier, onClick: 
             .clip(CircleShape)
             .background(if (p.gradient) p.accentFill() else Brush.radialGradient(listOf(p.accentHover, p.accent)))
             .border(0.75.dp, Color.White.copy(alpha = 0.22f), CircleShape)
-            .pressable(onClick = onClick),
+            .graphicsLayer { alpha = if (enabled) 1f else 0.35f }
+            .pressable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
@@ -273,9 +277,9 @@ fun PlayOrb(playing: Boolean, size: Dp, modifier: Modifier = Modifier, onClick: 
 }
 
 @Composable
-fun WhiteButton(text: String, icon: DrawableResource?, modifier: Modifier = Modifier, onClick: () -> Unit) {
+fun WhiteButton(text: String, icon: DrawableResource?, modifier: Modifier = Modifier, compact: Boolean = false, onClick: () -> Unit) {
     val p = LocalGlass.current
-    val style = GlassType.rowTitle.copy(fontWeight = FontWeight.Bold)
+    val style = (if (compact) GlassType.small else GlassType.rowTitle).copy(fontWeight = FontWeight.Bold)
     val measurer = androidx.compose.ui.text.rememberTextMeasurer()
     val density = androidx.compose.ui.platform.LocalDensity.current
     val short = stringResource(Res.string.cd_play)
@@ -283,7 +287,8 @@ fun WhiteButton(text: String, icon: DrawableResource?, modifier: Modifier = Modi
     val shortWidth = remember(short, style, measurer) { measurer.measure(short, style, maxLines = 1).size.width }
     androidx.compose.foundation.layout.BoxWithConstraints(
         modifier
-            .height(48.dp)
+            .then(if (compact) Modifier.widthIn(max = with(density) { textWidth.toDp() } + (if (icon != null) 56.dp else 28.dp)).minimumInteractiveComponentSize() else Modifier)
+            .height(if (compact) 40.dp else 48.dp)
             .shadow(18.dp, CircleShape, clip = false, ambientColor = p.accent, spotColor = p.accent)
             .clip(CircleShape)
             .background(Brush.verticalGradient(listOf(Color.White, Color(0xFFE5E7EB))))
@@ -291,7 +296,7 @@ fun WhiteButton(text: String, icon: DrawableResource?, modifier: Modifier = Modi
             .pressable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        val chrome = with(density) { (44.dp + if (icon != null) 28.dp else 0.dp).toPx() }
+        val chrome = with(density) { ((if (compact) 28.dp else 44.dp) + if (icon != null) 28.dp else 0.dp).toPx() }
         val unbounded = constraints.maxWidth == androidx.compose.ui.unit.Constraints.Infinity
         val label = when {
             icon == null || unbounded || constraints.maxWidth >= chrome + textWidth -> text
@@ -300,7 +305,7 @@ fun WhiteButton(text: String, icon: DrawableResource?, modifier: Modifier = Modi
         }
         if (label != null) {
             Row(
-                Modifier.padding(horizontal = 22.dp),
+                Modifier.padding(horizontal = if (compact) 14.dp else 22.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {

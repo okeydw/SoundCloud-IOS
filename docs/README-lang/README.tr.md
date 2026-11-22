@@ -67,7 +67,7 @@ Reklamsız · Captcha yok · Sansür yok · Rusya'da kullanılabilir
 
 **Nasıl kurulur:** adım adım kılavuz [burada](https://docs.getsoundcloud.app/install/ios).
 
-**iOS'ta henüz yok:** içe aktarma, ekolayzır, SoundCloud Auto, ses çıkışı seçimi ve uygulama içi güncelleme.
+**iOS'ta henüz yok:** içe aktarma, SoundCloud Auto, ses çıkışı seçimi ve uygulama içi güncelleme.
 
 ---
 
@@ -105,14 +105,19 @@ Ardından giriş gelir: SoundCloud üzerinden ya da masaüstü sürümündeki QR
 
 - **Dalga ve öneriler** - beğenilere ve dinleme geçmişine dayanan kendi öneri sistemimiz
 - **Arama** - parçalar, sanatçılar, çalma listeleri, albümler ve vibe araması (bir sinir ağı bağlama göre parça seçer)
-- **Oynatıcı** - karıştırma, tekrar, sıra, şarkı sözleri, beğeni ve beğenmeme
+- **Oynatıcı** - karıştırma, tekrar, sıra, şarkı sözleri, beğeni ve beğenmeme. Sanatçının profilini açmak için genişletilmiş oynatıcıda adına dokun. Parça listelerinde ada dokunmak parçayı çalar.
+- **Ekolayzır** - hazır ön ayarlar ve kendi ön ayarını oluşturma
+- **Hız ve ses perdesi** - hızı değiştirirken perdeyi koru, hızla birlikte değiştir veya yarım tonlarla bağımsız ayarla. Kontroller ekolayzer ayarlarındadır.
+- **Kendi görsellerin** - Fotoğraflar’dan arka plan seç, değiştir veya kaldır; görünüm ayarlarında bulanıklık ve karartmayı ayarla. Çalma listesi kapağını kendi menüsünden değiştirebilirsin.
 - **Çalma listeleri** - SoundCloud ile senkronize kendi yerel listelerin, herkese açık veya gizli, parça sırası sürükleyerek değişir ve kaydedilir
+- **Sıralama ve beğenilenlerin sırası** - «Ben» bölümündeki parçaların üzerinde küçük bir simgeyle başlık, sanatçı, süre ve diğer alanlara göre sıralama. «Sırayı değiştir» ile beğenilen parçaları elle taşıyabilirsin; sıra cihazda saklanır ve çalarken kullanılır. Çalma listelerinde sıralama kontrolü yoktur.
 - **Geçmiş ve istatistikler** - dinleme süresi, en çok dinlenen parçalar ve sanatçılar, günlere ve saatlere göre grafik
 - **Profiller** - takip etme ve takibi bırakma, SoundCloud profilindeki bağlantılar
 
 ### Çevrimdışı mod
 
 - Parça ve çalma listesi indirme, önbellekli çevrimdışı mod
+- **HLS onarımı** - kaydedilen parçalar çalınmadan önce kontrol edilir. Ayarlar → Depolama → Bütünlüğü kontrol et üzerinden indirmeleri ve önbelleği elle kontrol edebilirsin. Bozuk indirmeler onarılır veya bağlantı varsa yeniden indirilir; eksik önbellek silinir ve çalarken yeniden yüklenir. Çalan parça atlanır, sonuçta kalan dosyalar gösterilir.
 
 ---
 
@@ -150,7 +155,7 @@ Tüm değişiklikler [CHANGELOG.md](../../CHANGELOG.md) dosyasında.
 **Derleme:** macOS, Xcode, JDK 17, [XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
 ```bash
-./gradlew :core:compileKotlinIosArm64 :ui:compileKotlinIosArm64   # ortak kod iOS için derleniyor mu
+./gradlew :core:compileKotlinIosArm64 :ui:compileKotlinIosArm64# ortak kod iOS için derleniyor mu
 cd iosApp && xcodegen generate                                    # project.yml'den Xcode projesi
 open SoundCloud.xcodeproj                                         # Kotlin framework'ü kendiliğinden derlenir
 ```

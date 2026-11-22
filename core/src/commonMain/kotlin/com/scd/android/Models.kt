@@ -42,6 +42,9 @@ data class Track(
     val favoritings_count: Long? = null,
     val reposts_count: Long? = null,
     val comment_count: Long? = null,
+    val release_date: String? = null,
+    val created_at: String? = null,
+    val publisher_metadata: TrackPublisher? = null,
 ) {
     val catalogArtist: EnrichmentArtist? get() = enrichment?.primary_artist?.takeIf { it.id.isNotBlank() }
 
@@ -52,10 +55,11 @@ data class Track(
             policy == "SNIP" ||
             monetization_model == "SUB_HIGH_TIER"
 
-    val starLocked: Boolean get() = access == "preview" && !Prefs.star
-
     val unavailable: Boolean get() = access == "blocked"
 }
+
+@Serializable
+data class TrackPublisher(val artist: String? = null)
 
 @Serializable
 data class ScdMeta(
@@ -287,9 +291,10 @@ data class HistoryEntry(
     val artworkUrl: String? = null,
     val duration: Long = 0,
     val playedAt: String = "",
+    val trackUrn: String? = null,
 ) {
     fun toTrack(): Track = Track(
-        urn = scTrackId,
+        urn = trackUrn ?: if (scTrackId.isNotEmpty() && scTrackId.all { it.isDigit() }) "soundcloud:tracks:$scTrackId" else scTrackId,
         title = title,
         duration = duration,
         artwork_url = artworkUrl,

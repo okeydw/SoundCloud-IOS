@@ -26,6 +26,9 @@ import org.jetbrains.compose.resources.painterResource
 expect val LocalAppContext: ProvidableCompositionLocal<PlatformContext>
 
 @Composable
+expect fun PlatformOutputDialog(onDismiss: () -> Unit)
+
+@Composable
 expect fun PlatformBackHandler(enabled: Boolean = true, onBack: () -> Unit)
 
 @Composable

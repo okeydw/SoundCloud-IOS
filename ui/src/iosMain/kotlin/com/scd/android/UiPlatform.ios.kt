@@ -1,5 +1,8 @@
 package com.scd.android
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ProvidableCompositionLocal
@@ -27,6 +30,9 @@ import coil3.request.SuccessResult
 import coil3.toBitmap
 import com.scd.android.res.Res
 import com.scd.android.res.ic_music
+import com.scd.android.res.background_failed
+import com.scd.android.res.cover_saved
+import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.skia.FilterBlurMode
 import org.jetbrains.skia.MaskFilter
@@ -50,9 +56,12 @@ actual fun platformPainter(icon: Any): Painter = painterResource(Res.drawable.ic
 @Composable
 actual fun rememberArtColor(model: Any?): Color? {
     val context = LocalPlatformContext.current
-    var color by remember(model) { mutableStateOf<Color?>(null) }
-    LaunchedEffect(model) {
-        if (model == null) return@LaunchedEffect
+    var color by remember { mutableStateOf<Color?>(null) }
+    LaunchedEffect(model, context) {
+        if (model == null) {
+            color = null
+            return@LaunchedEffect
+        }
         color = runCatching {
             val request = ImageRequest.Builder(context).data(model).size(48).build()
             val image = (SingletonImageLoader.get(context).execute(request) as? SuccessResult)?.image ?: return@runCatching null
@@ -73,9 +82,14 @@ actual fun rememberArtColor(model: Any?): Color? {
                 }
             }
             Color(best or (0xFF shl 24))
-        }.getOrNull()
+        }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }.getOrNull()
     }
-    return color
+    val tint by animateColorAsState(
+        targetValue = color ?: LocalGlass.current.accent,
+        animationSpec = tween(650, easing = FastOutSlowInEasing),
+        label = "artwork tint",
+    )
+    return tint
 }
 
 actual fun Modifier.softShadow(shape: Shape, radius: Dp, color: Color, offsetY: Dp): Modifier =
@@ -102,7 +116,20 @@ actual fun isLowRamDevice(context: PlatformContext): Boolean = false
 actual fun openLink(context: PlatformContext, url: String) = openInBrowser(context, url)
 
 @Composable
-actual fun rememberCoverPicker(urn: String): () -> Unit = {}
+actual fun rememberCoverPicker(urn: String): () -> Unit {
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val failed = org.jetbrains.compose.resources.stringResource(com.scd.android.res.Res.string.background_failed)
+    val saved = org.jetbrains.compose.resources.stringResource(com.scd.android.res.Res.string.cover_saved)
+    return {
+        scope.launch {
+            androidx.compose.runtime.withFrameNanos { }
+            IosImages.pick(
+                onPicked = { bytes -> PlaylistCovers.setBytes(urn, bytes).also { if (it) Toasts.show(saved) } },
+                onError = { Toasts.show(failed) },
+            )
+        }
+    }
+}
 
 object IosChrome {
     var darkBars: (Boolean) -> Unit = {}

@@ -68,7 +68,8 @@ class DarwinHttpEngine : HttpEngine {
             req.setHTTPBody(b.bytes.toNSData())
             b.contentType?.let { req.setValue(it, forHTTPHeaderField = "Content-Type") }
         }
-        if (r.forceNetwork) req.setCachePolicy(NSURLRequestReloadIgnoringLocalCacheData)
+        if (r.cacheOnly) req.setCachePolicy(NSURLRequestReturnCacheDataDontLoad)
+        else if (r.forceNetwork) req.setCachePolicy(NSURLRequestReloadIgnoringLocalCacheData)
         return req
     }
 

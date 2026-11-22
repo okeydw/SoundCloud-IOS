@@ -67,7 +67,7 @@ Ve a la [página de versiones](https://github.com/okeydw/SoundCloud-iOS/releases
 
 **Cómo instalar:** guía paso a paso [aquí](https://docs.getsoundcloud.app/install/ios).
 
-**Todavía no está en iOS:** importación, ecualizador, SoundCloud Auto, elección de salida de audio y actualizaciones desde la app.
+**Todavía no está en iOS:** importación, SoundCloud Auto, elección de salida de audio y actualizaciones desde la app.
 
 ---
 
@@ -105,14 +105,19 @@ Después viene el inicio de sesión, a través de SoundCloud o con un código QR
 
 - **Ola y recomendaciones** - sistema de recomendaciones propio basado en tus me gusta y tu historial de escucha
 - **Búsqueda** - pistas, artistas, listas, álbumes y búsqueda por vibra (una red neuronal elige pistas según el contexto)
-- **Reproductor** - aleatorio, repetición, cola, letras, me gusta y no me gusta
+- **Reproductor** - aleatorio, repetición, cola, letras, me gusta y no me gusta. Toca el nombre del artista en el reproductor expandido para abrir su perfil. En las listas, tocar el nombre reproduce la pista.
+- **Ecualizador** - presets listos y la opción de crear el tuyo
+- **Velocidad y tono** - conserva el tono al cambiar la velocidad, deja que siga la velocidad o ajústalo de forma independiente en semitonos. Los controles están en los ajustes del ecualizador.
+- **Imágenes propias** - elige, cambia o elimina el fondo desde Fotos y ajusta el desenfoque y la oscuridad en los ajustes de apariencia. Puedes cambiar la portada de una playlist desde su menú.
 - **Listas** - tus propias listas locales sincronizadas con SoundCloud, públicas o privadas, el orden de las pistas se cambia arrastrando y se guarda
+- **Ordenación y orden de favoritos** - un icono compacto sobre las pistas en «Yo»: título, artista, duración y otros campos. Usa «Cambiar orden» para mover manualmente tus favoritos; el orden se guarda en el dispositivo y se usa al reproducir. Las playlists no tienen control de ordenación.
 - **Historial y estadísticas** - tiempo de escucha, pistas y artistas más escuchados, gráficos por días y por horas
 - **Perfiles** - seguir y dejar de seguir, enlaces del perfil de SoundCloud
 
 ### Modo sin conexión
 
 - Descarga de pistas y listas, modo sin conexión con caché
+- **Reparación de HLS** - las pistas guardadas se comprueban antes de reproducirse. Revisa descargas y caché en Ajustes → Almacenamiento → Comprobar integridad. Las descargas dañadas se reparan o se descargan de nuevo con conexión; la caché incompleta se elimina y se carga al reproducir. La pista actual se omite y el resultado muestra los archivos pendientes.
 
 ---
 
@@ -150,7 +155,7 @@ La lista completa de cambios está en [CHANGELOG.md](../../CHANGELOG.md).
 **Compilación:** macOS, Xcode, JDK 17, [XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
 ```bash
-./gradlew :core:compileKotlinIosArm64 :ui:compileKotlinIosArm64   # el código común compila para iOS
+./gradlew :core:compileKotlinIosArm64 :ui:compileKotlinIosArm64# el código común compila para iOS
 cd iosApp && xcodegen generate                                    # proyecto de Xcode desde project.yml
 open SoundCloud.xcodeproj                                         # el framework de Kotlin se compila solo
 ```

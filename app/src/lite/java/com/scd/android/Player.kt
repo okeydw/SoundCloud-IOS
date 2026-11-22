@@ -171,7 +171,7 @@ fun PlayerBar(controller: MediaController?, onExpand: () -> Unit) {
                 val w = widthPx
                 if (prev != null) {
                     MiniContent(
-                        prev.title?.toString() ?: "",
+                        prev.formattedTitle,
                         prev.artist?.toString() ?: "",
                         prev.artworkUri?.toString(),
                         marquee = false,
@@ -183,7 +183,7 @@ fun PlayerBar(controller: MediaController?, onExpand: () -> Unit) {
                 }
                 if (next != null) {
                     MiniContent(
-                        next.title?.toString() ?: "",
+                        next.formattedTitle,
                         next.artist?.toString() ?: "",
                         next.artworkUri?.toString(),
                         marquee = false,
@@ -203,7 +203,7 @@ fun PlayerBar(controller: MediaController?, onExpand: () -> Unit) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(Modifier.weight(1f).clickable(onClick = onExpand)) {
-                        MiniContent(title, artist, artworkUri, marquee = true)
+                        MiniContent(formattedTrackTitle(title, artist), artist, artworkUri, marquee = true)
                     }
                     IconButton(onClick = {
                         controller?.currentMediaItem?.toTrackOrNull()?.let { scope.launch { Likes.toggle(it) } }
@@ -425,14 +425,11 @@ fun NowPlayingScreen(
         controller.seekTo(target)
     }
 
-    var waveform by remember(currentUrn) { mutableStateOf(WaveCache.get(currentUrn)) }
-    LaunchedEffect(currentUrn, fullTrack) {
-        if (waveform != null) return@LaunchedEffect
+    var waveform by remember(currentUrn) { mutableStateOf(WaveCache.initial(currentUrn)) }
+    val waveformUrl = NowPlaying.waveformUrl ?: fullTrack?.waveform_url
+    LaunchedEffect(currentUrn, waveformUrl, currentUrn?.let(Downloads::isDownloaded), Prefs.offline, Health.noInternet) {
         val urn = currentUrn ?: return@LaunchedEffect
-        val url = NowPlaying.waveformUrl ?: fullTrack?.waveform_url ?: return@LaunchedEffect
-        val loaded = runCatching { Api.waveform(url) }.getOrNull() ?: return@LaunchedEffect
-        WaveCache.put(urn, loaded)
-        if (currentUrn == urn) waveform = loaded
+        WaveCache.display(urn, waveformUrl).collect { waveform = it }
     }
 
     val background = MaterialTheme.colorScheme.background
@@ -619,9 +616,10 @@ fun NowPlayingScreen(
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            var titleOverflows by remember(title) { mutableStateOf(false) }
+                            val shownTitle = fullTrack?.displayTitle ?: formattedTrackTitle(title, artist)
+                            var titleOverflows by remember(shownTitle) { mutableStateOf(false) }
                             Text(
-                                title,
+                                shownTitle,
                                 style = MaterialTheme.typography.headlineSmall,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,

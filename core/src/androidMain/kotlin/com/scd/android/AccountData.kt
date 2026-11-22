@@ -35,7 +35,7 @@ object AccountData {
         Startup.reset()
         FeedCache.clear()
         PlaylistArt.clear()
-        WaveCache.clear()
+        WaveCache.clear(keepDownloaded = false)
         ScDataSource.forgetResolved()
         val app = context.applicationContext
         AppScope.scope.launch { runCatching { MediaCache.clear(app) } }

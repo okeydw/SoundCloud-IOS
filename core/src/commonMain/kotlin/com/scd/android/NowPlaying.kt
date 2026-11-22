@@ -23,15 +23,21 @@ object NowPlaying {
 
 fun NowPlaying.sync(q: QueuePlayer) {
     val t = q.currentTrack
-    urn = q.currentUrn
-    title = t?.title ?: ""
-    artist = t?.user?.username ?: ""
-    artistUrn = t?.user?.urn
-    artworkUri = t?.artModel() as? String
-    waveformUrl = t?.waveform_url
-    genre = t?.genre
-    isPlaying = q.isPlaying
-    shuffle = ShuffleQueue.active(q)
-    repeatMode = q.repeatMode
+    androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+        urn = q.currentUrn
+        title = t?.title ?: ""
+        artist = t?.user?.username ?: ""
+        artistUrn = t?.user?.urn
+        artworkUri = t?.artModel() as? String
+        waveformUrl = t?.waveform_url
+        genre = t?.genre
+        isPlaying = q.isPlaying
+        shuffle = ShuffleQueue.active(q)
+        repeatMode = q.repeatMode
+    }
     WaveState.remember(urn, q.positionMs)
+    WaveCache.prefetch(urn, waveformUrl)
+    if (q.nextIndex in 0 until q.itemCount) {
+        q.trackAt(q.nextIndex)?.let { WaveCache.prefetch(it.urn, it.waveform_url) }
+    }
 }

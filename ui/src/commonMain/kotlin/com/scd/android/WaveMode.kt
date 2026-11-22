@@ -306,7 +306,7 @@ private fun WavePage(track: Track, next: List<Track>, modifier: Modifier, glow: 
         Row(verticalAlignment = Alignment.Top) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    track.title,
+                    track.displayTitle,
                     style = GlassType.title.copy(fontSize = 29.sp, lineHeight = 32.sp),
                     color = p.text,
                     maxLines = 2,
@@ -334,7 +334,7 @@ private fun WavePage(track: Track, next: List<Track>, modifier: Modifier, glow: 
                                 Artwork(n.artModel("t120x120"), Modifier.size(36.dp), corner = 10.dp)
                                 Spacer(Modifier.width(10.dp))
                                 Column(Modifier.weight(1f)) {
-                                    Text(n.title, style = GlassType.small.copy(fontWeight = FontWeight.SemiBold), color = p.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(n.displayTitle, style = GlassType.small.copy(fontWeight = FontWeight.SemiBold), color = p.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Text(n.user?.username ?: "", style = GlassType.small.copy(fontSize = 11.sp), color = p.text2, maxLines = 1)
                                 }
                                 Text(formatDuration(n.displayDuration), style = GlassType.mono, color = p.text3)

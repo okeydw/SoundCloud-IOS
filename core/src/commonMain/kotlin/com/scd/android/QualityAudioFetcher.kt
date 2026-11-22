@@ -7,7 +7,7 @@ data class QualityAudio(val bytes: ByteArray, val tier: Quality)
 class QualityAudioFetcher(
     private val request: suspend (String) -> HttpResponse?,
     private val decodeSource: suspend (String) -> ByteArray?,
-    private val isAudio: (ByteArray) -> Boolean,
+    private val prepareAudio: (ByteArray) -> ByteArray?,
 ) {
     suspend fun fetch(
         streams: List<String>,
@@ -71,10 +71,10 @@ class QualityAudioFetcher(
 
     private suspend fun direct(url: String, asked: Quality?, stored: Quality?, verdict: QualityLadder.Verdict): QualityAudio? {
         val res = response(url, asked, verdict) ?: return null
-        if (!isAudio(res.body)) return null
+        val prepared = prepareAudio(res.body) ?: return null
         val actual = AudioQualityPolicy.served(res.header("x-audio-quality"), stored?.label, asked)
         verdict.served(actual)
-        return QualityAudio(res.body, actual)
+        return QualityAudio(prepared, actual)
     }
 
     private suspend fun download(url: String, asked: Quality, verdict: QualityLadder.Verdict): QualityAudio? {
@@ -92,10 +92,10 @@ class QualityAudioFetcher(
             val bytes = try { decodeSource(target) }
             catch (e: CancellationException) { throw e }
             catch (_: Exception) { null }
-            if (bytes != null && isAudio(bytes)) {
+            bytes?.let(prepareAudio)?.let { prepared ->
                 val actual = Quality.of(candidate.quality)
                 verdict.served(actual)
-                return QualityAudio(bytes, actual)
+                return QualityAudio(prepared, actual)
             }
         }
         return null

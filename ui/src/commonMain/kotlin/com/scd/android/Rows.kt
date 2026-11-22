@@ -106,7 +106,7 @@ fun GlassTrackRow(
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    track.title,
+                    track.displayTitle,
                     style = GlassType.rowTitle,
                     color = p.text,
                     maxLines = 1,
@@ -114,10 +114,6 @@ fun GlassTrackRow(
                     overflow = if (current) TextOverflow.Clip else TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false).then(if (current) Modifier.basicMarquee() else Modifier),
                 )
-                if (track.goPlus) {
-                    Spacer(Modifier.width(6.dp))
-                    StarBadgeGlass()
-                }
             }
             Spacer(Modifier.height(2.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -125,7 +121,7 @@ fun GlassTrackRow(
                     Icon(painterResource(Res.drawable.ic_check), null, tint = p.accent, modifier = Modifier.size(13.dp))
                     Spacer(Modifier.width(5.dp))
                 }
-                TrackArtistNames(track, style = GlassType.small, color = p.text2)
+                TrackArtistNames(track, style = GlassType.small, color = p.text2, enabled = false)
             }
         }
         Spacer(Modifier.width(8.dp))
@@ -139,7 +135,7 @@ fun GlassTrackRow(
         }
         if (trailing != null) {
             trailing()
-        } else {
+        } else if (!track.external) {
             val liked = Likes.isLiked(track.urn)
             Box(
                 Modifier.size(40.dp).clip(CircleShape).clickable { scope.launch { Likes.toggle(track) } },
@@ -195,8 +191,8 @@ fun TrackCard(track: Track, onClick: () -> Unit, width: Dp = 138.dp) {
             }
         }
         Spacer(Modifier.height(8.dp))
-        Text(track.title, style = GlassType.small.copy(fontWeight = FontWeight.SemiBold), color = p.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        TrackArtistNames(track, style = GlassType.small, color = p.text2)
+        Text(track.displayTitle, style = GlassType.small.copy(fontWeight = FontWeight.SemiBold), color = p.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        TrackArtistNames(track, style = GlassType.small, color = p.text2, enabled = false)
     }
 }
 

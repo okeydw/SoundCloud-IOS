@@ -421,7 +421,7 @@ fun TrackRow(
     val liked = Likes.isLiked(track.urn)
     val isCurrent = NowPlaying.urn == track.urn
     val accent = MaterialTheme.colorScheme.primary
-    val dim = dimmed || track.starLocked || (track.unavailable && !Prefs.playBlocked)
+    val dim = dimmed || (track.unavailable && !Prefs.playBlocked)
     val rowAlpha = if (dim) 0.4f else 1f
     LaunchedEffect(track.urn) {
         if (track.goPlus && track.displayDuration in 1L..35_000L && !Prefs.offline) {
@@ -472,7 +472,7 @@ fun TrackRow(
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    track.title,
+                    track.displayTitle,
                     maxLines = 1,
                     overflow = if (isCurrent) TextOverflow.Clip else TextOverflow.Ellipsis,
                     softWrap = !isCurrent,

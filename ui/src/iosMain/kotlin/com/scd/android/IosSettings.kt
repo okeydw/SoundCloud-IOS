@@ -45,7 +45,7 @@ import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 
-private enum class IosSec { Root, Account, Look, Equalizer, Playback, Network, About, Logs }
+private enum class IosSec { Root, Account, Look, Equalizer, Playback, Storage, Import, Spotify, YouTube, Yandex, Auto, Network, About, Logs }
 
 @Composable
 actual fun SettingsScreen(
@@ -60,13 +60,22 @@ actual fun SettingsScreen(
     var sec by remember { mutableStateOf(IosSec.Root) }
     var showQr by remember { mutableStateOf(false) }
     if (showQr) LinkQrDialog(push = true, onDismiss = { showQr = false })
-    val back = { if (sec == IosSec.Root) onBack() else sec = IosSec.Root }
+    val back = { if (sec == IosSec.Root) onBack() else sec = when (sec) {
+        IosSec.Spotify, IosSec.YouTube, IosSec.Yandex -> IosSec.Import
+        else -> IosSec.Root
+    } }
     val title = when (sec) {
         IosSec.Root -> stringResource(Res.string.settings)
         IosSec.Account -> stringResource(Res.string.tab_account)
         IosSec.Look -> stringResource(Res.string.tab_visual)
         IosSec.Equalizer -> stringResource(Res.string.equalizer)
         IosSec.Playback -> stringResource(Res.string.tab_advanced)
+        IosSec.Import -> stringResource(Res.string.import_title)
+        IosSec.Spotify -> stringResource(Res.string.import_sp_title)
+        IosSec.YouTube -> stringResource(Res.string.import_yt_section)
+        IosSec.Yandex -> stringResource(Res.string.import_src_yandex)
+        IosSec.Auto -> stringResource(Res.string.car_section)
+        IosSec.Storage -> stringResource(Res.string.tab_storage)
         IosSec.Network -> stringResource(Res.string.relay_section)
         IosSec.About -> stringResource(Res.string.tab_about)
         IosSec.Logs -> stringResource(Res.string.tab_logs)
@@ -85,7 +94,6 @@ actual fun SettingsScreen(
                             Spacer(Modifier.width(14.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(username ?: "", style = GlassType.rowTitle, color = p.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                if (Prefs.star) Text("Star", style = GlassType.small, color = p.accent)
                             }
                         }
                     }
@@ -94,6 +102,9 @@ actual fun SettingsScreen(
                         IosRow(Res.drawable.ic_music, stringResource(Res.string.tab_visual)) { sec = IosSec.Look }
                         IosRow(Res.drawable.ic_equalizer, stringResource(Res.string.equalizer)) { sec = IosSec.Equalizer }
                         IosRow(Res.drawable.ic_settings, stringResource(Res.string.tab_advanced)) { sec = IosSec.Playback }
+                        IosRow(Res.drawable.ic_download, stringResource(Res.string.tab_storage)) { sec = IosSec.Storage }
+                        IosRow(Res.drawable.ic_import, stringResource(Res.string.import_title)) { sec = IosSec.Import }
+                        IosRow(Res.drawable.ic_play, stringResource(Res.string.car_section)) { sec = IosSec.Auto }
                         IosRow(Res.drawable.ic_globe, stringResource(Res.string.relay_section)) { sec = IosSec.Network }
                         IosRow(Res.drawable.ic_history, stringResource(Res.string.tab_logs)) { sec = IosSec.Logs }
                         IosRow(Res.drawable.ic_comment, stringResource(Res.string.tab_about)) { sec = IosSec.About }
@@ -104,6 +115,7 @@ actual fun SettingsScreen(
                         IosRow(Res.drawable.ic_share, stringResource(Res.string.link_share_title)) { showQr = true }
                         IosRow(Res.drawable.ic_power, stringResource(Res.string.logout)) { onLogout() }
                     }
+                    AccountOptions()
                     accountExtras()
                 }
                 IosSec.Look -> {
@@ -156,7 +168,10 @@ actual fun SettingsScreen(
                     }
                     Panel {
                         Toggle(stringResource(Res.string.immersive_artwork), stringResource(Res.string.immersive_artwork_hint), Prefs.immersiveArtwork) { Prefs.changeImmersiveArtwork(it) }
+                        Toggle(stringResource(Res.string.hide_title_artists), stringResource(Res.string.hide_title_artists_hint), Prefs.hideTitleArtists) { Prefs.changeHideTitleArtists(it) }
                     }
+                    AppearanceOptions()
+                    BackgroundPanel()
                     visualExtras()
                 }
                 IosSec.Equalizer -> {
@@ -170,11 +185,29 @@ actual fun SettingsScreen(
                 IosSec.Playback -> {
                     QualitySettingsPanel()
                     Panel {
+                        Toggle(stringResource(Res.string.crossfade), "", Prefs.crossfade, Prefs::changeCrossfade)
+                        if (Prefs.crossfade) {
+                            Label(stringResource(Res.string.crossfade_seconds, Prefs.crossfadeSeconds))
+                            androidx.compose.material3.Slider(Prefs.crossfadeSeconds.toFloat(), { Prefs.changeCrossfadeSeconds(it.toInt()) },
+                                Modifier.padding(horizontal = 16.dp), valueRange = 1f..30f, steps = 28)
+                        }
+                        Toggle(stringResource(Res.string.stream_tags), "", Prefs.streamTags, Prefs::changeStreamTags)
+                    }
+                    Panel {
                         Toggle(stringResource(Res.string.haptics), stringResource(Res.string.haptics_hint), Prefs.haptics) { Prefs.changeHaptics(it) }
                         Toggle(stringResource(Res.string.anon_fallback), stringResource(Res.string.anon_fallback_hint), Prefs.anonFallback) { Prefs.changeAnonFallback(it) }
                         Toggle(stringResource(Res.string.offline_mode), "", Prefs.offline) { Prefs.setOfflineMode(it) }
                         Toggle(stringResource(Res.string.offline_auto), stringResource(Res.string.offline_auto_hint), Prefs.autoOffline) { Prefs.changeAutoOffline(it) }
                     }
+                }
+                IosSec.Import -> IosImportScreen({ sec = IosSec.Spotify }, { sec = IosSec.YouTube }, { sec = IosSec.Yandex })
+                IosSec.Spotify -> IosSpotifyAccount()
+                IosSec.YouTube -> IosYouTubeAccount { sec = IosSec.Import }
+                IosSec.Yandex -> IosYandexAccount()
+                IosSec.Auto -> CarOptions()
+                IosSec.Storage -> {
+                    StorageOptions()
+                    StoragePanel()
                 }
                 IosSec.Network -> NetworkPanel()
                 IosSec.About -> AboutPanel()
@@ -267,6 +300,7 @@ private fun NetworkPanel() {
 
 @Composable
 private fun AboutPanel() {
+    DiagnosticsOptions()
     val p = LocalGlass.current
     val context = LocalAppContext.current
     val scope = rememberCoroutineScope()
@@ -307,4 +341,59 @@ actual fun SettingsLink(icon: DrawableResource, title: String, subtitle: String,
 @Composable
 internal fun Hint(text: String) {
     Text(text, style = GlassType.small, color = LocalGlass.current.text2, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+}
+
+@Composable
+private fun BackgroundPanel() {
+    val p = LocalGlass.current
+    val failed = stringResource(Res.string.background_failed)
+    Panel {
+        Label(stringResource(Res.string.background_image))
+        Hint(stringResource(Res.string.background_image_hint))
+        Prefs.backgroundImage?.let { path ->
+            Artwork("file://$path", Modifier.fillMaxWidth().height(150.dp).padding(12.dp), corner = 14.dp)
+        }
+        if (IosImages.busy) {
+            androidx.compose.material3.CircularProgressIndicator(Modifier.padding(16.dp).size(24.dp), color = p.accent)
+        } else {
+            IosRow(Res.drawable.ic_music, stringResource(if (Prefs.backgroundImage == null) Res.string.background_choose else Res.string.background_replace)) {
+                IosImages.pick(IosBackground::set) { Toasts.show(failed) }
+            }
+            if (Prefs.backgroundImage != null) {
+                IosRow(Res.drawable.ic_trash, stringResource(Res.string.background_remove)) { IosBackground.clear() }
+            }
+        }
+        if (Prefs.backgroundImage != null) {
+            Toggle(stringResource(Res.string.background_blur), stringResource(Res.string.background_blur_hint), Prefs.backgroundBlur) { Prefs.changeBackgroundBlur(it) }
+            if (Prefs.backgroundBlur && BlurSupport.available) {
+                Label(stringResource(Res.string.background_blur_amount))
+                androidx.compose.material3.Slider(Prefs.backgroundBlurRadius, { Prefs.changeBackgroundBlurRadius(it) }, Modifier.padding(horizontal = 16.dp), valueRange = 0f..60f)
+            }
+            Label(stringResource(Res.string.background_dim))
+            androidx.compose.material3.Slider(Prefs.backgroundDim, { Prefs.changeBackgroundDim(it) }, Modifier.padding(horizontal = 16.dp), valueRange = 0f..0.95f)
+        }
+    }
+}
+
+@Composable
+private fun StoragePanel() {
+    val p = LocalGlass.current
+    Panel {
+        Label(stringResource(Res.string.integrity_check))
+        Hint(stringResource(Res.string.integrity_hint))
+        if (IosIntegrity.running) {
+            Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.CircularProgressIndicator(Modifier.size(24.dp), color = p.accent)
+                Spacer(Modifier.width(12.dp))
+                Text(stringResource(Res.string.integrity_progress, IosIntegrity.done, IosIntegrity.total), color = p.text, style = GlassType.small)
+            }
+            IosRow(Res.drawable.ic_clear, stringResource(Res.string.cancel)) { IosIntegrity.cancel() }
+        } else {
+            IosRow(Res.drawable.ic_refresh, stringResource(Res.string.integrity_check)) { IosIntegrity.start() }
+        }
+        if (IosIntegrity.failed) Hint(stringResource(Res.string.integrity_failed))
+        IosIntegrity.report?.let { report ->
+            Hint(stringResource(Res.string.integrity_result, report.checked, report.repaired, report.remaining))
+        }
+    }
 }

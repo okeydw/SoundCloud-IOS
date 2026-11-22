@@ -11,8 +11,9 @@ object IosEq {
     private const val FLAG_NON_INTERLEAVED = 32u
     private const val TAP_POST_EFFECTS = 2u
 
-    internal class TapState {
+    internal class TapState(val pitchEnabled: Boolean) {
         val dsp = EqDsp()
+        var pitch: IosPitchUnit? = null
         var ready = false
         var float32 = false
         var nonInterleaved = false
@@ -20,10 +21,18 @@ object IosEq {
         val channelPtrs = arrayOfNulls<CPointer<FloatVar>>(8)
     }
 
-    fun attach(item: AVPlayerItem) {
+    fun attach(item: AVPlayerItem, pitchEnabled: Boolean = false) {
         runCatching {
-            val track = item.asset.tracksWithMediaType(AVMediaTypeAudio).firstOrNull() as? AVAssetTrack ?: return
-            val tap = create() ?: return
+            val track = item.asset.tracksWithMediaType(AVMediaTypeAudio).firstOrNull() as? AVAssetTrack
+            if (track == null) {
+                if (pitchEnabled) IosPitch.failure = -4
+                return
+            }
+            val tap = create(pitchEnabled)
+            if (tap == null) {
+                if (pitchEnabled) IosPitch.failure = -4
+                return
+            }
             try {
                 val params = AVMutableAudioMixInputParameters()
                 params.setTrackID(track.trackID)
@@ -34,11 +43,14 @@ object IosEq {
             } finally {
                 CFRelease(tap)
             }
-        }.onFailure { Logs.add("eq", "tap attach failed: ${it::class.simpleName}") }
+        }.onFailure {
+            if (pitchEnabled) IosPitch.failure = -4
+            Logs.add("eq", "tap attach failed: ${it::class.simpleName}")
+        }
     }
 
-    private fun create(): MTAudioProcessingTapRef? = memScoped {
-        val state = StableRef.create(TapState())
+    private fun create(pitchEnabled: Boolean): MTAudioProcessingTapRef? = memScoped {
+        val state = StableRef.create(TapState(pitchEnabled))
         val callbacks = alloc<MTAudioProcessingTapCallbacks>()
         callbacks.version = 0
         callbacks.clientInfo = state.asCPointer()
@@ -141,7 +153,9 @@ private fun tapInit(tap: COpaquePointer?, clientInfo: COpaquePointer?, storageOu
 private fun tapFinalize(tap: COpaquePointer?) {
     runCatching {
         val storage = tap?.let { MTAudioProcessingTapGetStorage(it.reinterpret()) } ?: return
-        storage.asStableRef<IosEq.TapState>().dispose()
+        val ref = storage.asStableRef<IosEq.TapState>()
+        ref.get().pitch?.dispose()
+        ref.dispose()
     }
 }
 
@@ -149,13 +163,27 @@ private fun tapFinalize(tap: COpaquePointer?) {
 private fun tapPrepare(tap: COpaquePointer?, maxFrames: Long, format: COpaquePointer?) {
     runCatching {
         val state = IosEq.stateOf(tap) ?: return
+        state.pitch?.dispose()
+        state.pitch = null
         IosEq.prepare(state, format ?: return)
+        if (state.pitchEnabled && tap != null) {
+            if (state.ready) state.pitch = IosPitchUnit.create(tap.reinterpret(), format.reinterpret(), maxFrames)
+            if (state.pitch == null) IosPitch.failure = -3
+        }
+    }.onFailure {
+        if (IosEq.stateOf(tap)?.pitchEnabled == true) IosPitch.failure = -3
     }
 }
 
 @OptIn(ExperimentalForeignApi::class)
 private fun tapUnprepare(tap: COpaquePointer?) {
-    runCatching { IosEq.stateOf(tap)?.ready = false }
+    runCatching {
+        IosEq.stateOf(tap)?.let {
+            it.ready = false
+            it.pitch?.dispose()
+            it.pitch = null
+        }
+    }
 }
 
 @OptIn(ExperimentalForeignApi::class)
@@ -169,15 +197,21 @@ private fun tapProcess(
 ) {
     if (tap == null || bufferList == null || numberFramesOut == null) return
     numberFramesOut.reinterpret<LongVar>().pointed.value = 0L
-    val status = MTAudioProcessingTapGetSourceAudio(
-        tap.reinterpret(),
-        numberFrames,
-        bufferList.reinterpret(),
-        flagsOut?.reinterpret(),
-        null,
-        numberFramesOut.reinterpret(),
-    )
-    if (status != 0) return
+    flagsOut?.reinterpret<UIntVar>()?.pointed?.value = 0u
+    val pitch = IosEq.stateOf(tap)?.pitch
+    if (pitch != null) {
+        try {
+            pitch.process(numberFrames.toInt(), flags, bufferList.reinterpret(), numberFramesOut.reinterpret(), flagsOut?.reinterpret())
+        } catch (_: Exception) {
+            IosPitch.failure = -2
+            return
+        }
+    } else {
+        val status = MTAudioProcessingTapGetSourceAudio(
+            tap.reinterpret(), numberFrames, bufferList.reinterpret(), flagsOut?.reinterpret(), null, numberFramesOut.reinterpret(),
+        )
+        if (status != 0) return
+    }
     runCatching {
         val frames = numberFramesOut.reinterpret<LongVar>().pointed.value.toInt()
         val state = IosEq.stateOf(tap) ?: return

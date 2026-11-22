@@ -14,7 +14,7 @@ class QualityAudioFetcherTest {
     private fun response(url: String, quality: String?, status: Int = 200, bytes: ByteArray = audio) =
         HttpResponse(status, quality?.let { mapOf("x-audio-quality" to it) }.orEmpty(), bytes, url)
     private fun fetcher(request: suspend (String) -> HttpResponse?) =
-        QualityAudioFetcher(request, { audio }, { it.contentEquals(audio) })
+        QualityAudioFetcher(request, { audio }, { bytes -> bytes.takeIf { it.contentEquals(audio) } })
     @After fun reset() = QualityLadder.forgetRefusal()
 
     @Test fun uqUsesStreamingAndNeverDownload() = runBlocking {

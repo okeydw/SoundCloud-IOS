@@ -5,7 +5,7 @@ import WidgetKit
 
 
 struct NowPlayingEntry: TimelineEntry {
-    let date: Date
+    var date: Date
     let title: String
     let artist: String
     let playing: Bool
@@ -13,6 +13,18 @@ struct NowPlayingEntry: TimelineEntry {
     let accent: Color
     let idle: String
     let open: String
+
+    var wave: [Double] = []
+    var position: Double = 0
+    var duration: Double = 0
+    var rate: Double = 1
+    var stamp: Double = 0
+
+    var progress: CGFloat {
+        guard duration > 0 else { return 0 }
+        let elapsed = playing ? max(0, date.timeIntervalSince1970 - stamp) * rate * 1000 : 0
+        return CGFloat(min(1, max(0, (position + elapsed) / duration)))
+    }
 
     var hasTrack: Bool { !title.isEmpty }
 
@@ -55,7 +67,10 @@ enum SharedStore {
             art: image,
             accent: accent,
             idle: d?.string(forKey: "idle") ?? NSLocalizedString("widget_idle", comment: ""),
-            open: d?.string(forKey: "open") ?? NSLocalizedString("widget_open", comment: "")
+            open: d?.string(forKey: "open") ?? NSLocalizedString("widget_open", comment: ""),
+            wave: d?.string(forKey: "waveUrn") == d?.string(forKey: "urn") ? (d?.array(forKey: "wave") as? [Double] ?? []) : [],
+            position: d?.double(forKey: "position") ?? 0, duration: d?.double(forKey: "duration") ?? 0,
+            rate: d?.double(forKey: "rate") ?? 1, stamp: d?.double(forKey: "stamp") ?? 0
         )
     }
 }
@@ -68,7 +83,19 @@ struct Provider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<NowPlayingEntry>) -> Void) {
-        completion(Timeline(entries: [SharedStore.load(artSide: side(context.family))], policy: .never))
+        let entry = SharedStore.load(artSide: side(context.family))
+        var entries = [entry]
+        if context.family == .systemLarge && entry.playing && entry.duration > 0 && entry.rate > 0 {
+            let remaining = max(0, 1 - Double(entry.progress)) * entry.duration / (entry.rate * 1000)
+            if remaining > 0 {
+                for index in 1...12 {
+                    var next = entry
+                    next.date = entry.date.addingTimeInterval(remaining * Double(index) / 12)
+                    entries.append(next)
+                }
+            }
+        }
+        completion(Timeline(entries: entries, policy: .never))
     }
 
     private func side(_ family: WidgetFamily) -> CGFloat {
@@ -226,6 +253,29 @@ struct MediumView: View {
     }
 }
 
+private struct TrackWave: View {
+    let entry: NowPlayingEntry
+
+    var body: some View {
+        Canvas { context, size in
+            let slot = size.width / CGFloat(max(1, entry.wave.count))
+            let width = slot * 0.64
+            let main = size.height * 0.72
+            for (index, sample) in entry.wave.enumerated() {
+                let height = max(width * 0.6, main * CGFloat(min(1, max(0, sample))))
+                let x = CGFloat(index) * slot
+                let color = x < entry.progress * size.width ? entry.accent : Color.white.opacity(0.48)
+                let bar = CGRect(x: x, y: (main - height) / 2, width: width, height: height)
+                let reflection = CGRect(x: x, y: main + 1, width: width, height: height * 0.32)
+                context.fill(Path(roundedRect: bar, cornerRadius: width / 2), with: .color(color))
+                context.fill(Path(roundedRect: reflection, cornerRadius: width / 2), with: .color(color.opacity(0.3)))
+            }
+        }
+        .frame(height: 24)
+        .accessibilityHidden(true)
+    }
+}
+
 struct LargeView: View {
     let entry: NowPlayingEntry
 
@@ -238,6 +288,7 @@ struct LargeView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             TitleBlock(entry: entry, titleSize: 18, lines: 2)
+            if entry.hasTrack && !entry.wave.isEmpty { TrackWave(entry: entry) }
             if entry.hasTrack {
                 HStack(spacing: 22) {
                     Spacer(minLength: 0)

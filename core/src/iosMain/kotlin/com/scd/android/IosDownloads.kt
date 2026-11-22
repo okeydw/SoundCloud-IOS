@@ -26,10 +26,13 @@ actual object Downloads {
     private val index = LinkedHashMap<String, Track>()
     private val lock = Any()
     private val mutex = Mutex()
+    private val artworkMutex = Mutex()
     private val qualityStore by lazy { IosKvStore("download_quality") }
     private var job: Job? = null
     private var upgradeJob: Job? = null
     private val pending = ArrayDeque<Pair<Track, String?>>()
+    private val validated = HashMap<String, Long>()
+    private val revisions = HashMap<String, Int>()
 
     private val dir: String get() = Dirs.sub("downloads")
     private val indexPath: String get() = "$dir/index.json"
@@ -60,6 +63,8 @@ actual object Downloads {
 
     actual fun tracks(): List<Track> = locked(lock) { index.values.toList() }.reversed()
 
+    internal actual fun savedTrack(urn: String): Track? = locked(lock) { index[urn] }
+
     actual fun cachedQuality(urn: String): String? {
         if (!isDownloaded(urn)) return null
         val tier = Quality.parse(qualityStore.getString(urn, null)) ?: return null
@@ -75,70 +80,104 @@ actual object Downloads {
         playlistTitle: String?,
         listKey: String?,
     ) {
-        val fresh = tracks.filter { !isDownloaded(it.urn) && it.urn !in queued }
-        if (fresh.isEmpty()) return
-        locked(pending) { fresh.forEach { pending.addLast(it to listKey) } }
-        queued = queued + fresh.map { it.urn }
-        listKey?.let { activeLists = activeLists + it }
-        if (job?.isActive != true) job = AppScope.scope.launch { drain() }
+        locked(pending) {
+            val fresh = tracks.distinctBy { it.urn }.filter { !isDownloaded(it.urn) && it.urn !in queued }
+            if (fresh.isNotEmpty()) {
+                fresh.forEach { pending.addLast(it to listKey) }
+                queued = queued + fresh.map { it.urn }
+                listKey?.let { activeLists = activeLists + it }
+                if (job == null) job = AppScope.scope.launch { drain() }
+            }
+        }
     }
 
-    private suspend fun drain() = mutex.withLock {
+    private suspend fun drain() {
         while (true) {
-            val next = locked(pending) { pending.removeFirstOrNull() } ?: break
+            val next = locked(pending) { pending.removeFirstOrNull().also { if (it == null) job = null } } ?: return
             val (track, key) = next
-            inProgress = inProgress + track.urn
-            val ok = runCatching { fetch(track) }.getOrDefault(false)
-            inProgress = inProgress - track.urn
-            queued = queued - track.urn
-            if (ok) {
-                locked(lock) { index[track.urn] = track }
-                downloaded = downloaded + track.urn
-                save()
-                Logs.add("download", "${track.title.take(30)} ✓")
-            } else {
-                Logs.add("download", "${track.title.take(30)} failed")
+            try {
+                mutex.withLock {
+                    inProgress = inProgress + track.urn
+                    val automatic = key == IosLikesAutoCache.KEY
+                    if (automatic && (!Prefs.autoCacheLikes || Prefs.offline || PlatformHooks.meteredBlocked())) return@withLock
+                    val ok = try { fetch(track) }
+                    catch (_: CancellationException) {
+                        currentCoroutineContext().ensureActive()
+                        false
+                    } catch (_: Exception) { false }
+                    if (automatic) {
+                        if (ok) DownloadFailures.clear(track.urn) else DownloadFailures.record(track.urn)
+                    }
+                    if (ok) {
+                        locked(lock) { index[track.urn] = track }
+                        downloaded = downloaded + track.urn
+                        save()
+                        WaveCache.prefetch(track.urn, track.waveform_url)
+                        Logs.add("download", "${track.title.take(30)} ✓")
+                    } else {
+                        Logs.add("download", "${track.title.take(30)} failed")
+                    }
+                }
+            } finally {
+                inProgress = inProgress - track.urn
+                locked(pending) {
+                    queued = queued - track.urn
+                    if (key != null && pending.none { it.second == key }) activeLists = activeLists - key
+                }
             }
-            if (key != null && locked(pending) { pending.none { it.second == key } }) activeLists = activeLists - key
         }
     }
 
     private suspend fun fetch(track: Track): Boolean = withContext(IoDispatcher) {
         val wanted = QualityLadder.downloadWanted()
         val cached = StreamFiles.cached(track.urn)?.let { Fs.readAtomic(it) }
-            ?.takeIf { StreamFiles.accepts(track, it) }?.let { QualityAudio(it, ServedQuality.of(track.urn) ?: Quality.SQ) }
+            ?.let { StreamFiles.prepare(track, it) }?.let { QualityAudio(it, ServedQuality.of(track.urn) ?: Quality.SQ) }
         val audio = if (cached != null && cached.tier.rank >= wanted.rank) cached else {
             val fresh = StreamFiles.audio(track, wanted)
             listOfNotNull(cached, fresh).maxByOrNull { it.tier.rank }
         } ?: return@withContext false
         storeAudio(track.urn, audio)
-        track.artwork_url?.let { art ->
+        saveArtwork(track)
+        true
+    }
+
+    private suspend fun saveArtwork(track: Track, recover: Boolean = false) {
+        val source = track.artwork_url?.takeIf { it.isNotBlank() } ?: if (recover && isScUrn(track.urn)) {
+            try {
+                val fresh = Api.trackByUrn(track.urn)
+                fresh.artwork_url ?: fresh.user?.avatar_url
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+        } else null
+        (source ?: track.user?.avatar_url)?.let { art ->
             runCatching {
                 val big = Api.artworkUrl(art) ?: return@runCatching
                 val (n, v) = Api.imageProxyTarget(big)
                 val img = Http.execute(HttpRequest("${Api.IMAGES_BASE}/?t=${formEncode(v)}", headers = listOf(n to v)))
-                if (img.isSuccessful && img.body.isNotEmpty()) Fs.writeAtomic(artFile(track.urn), img.body)
+                if (img.isSuccessful && img.body.isNotEmpty() && Fs.exists(audioPath(track.urn))) Fs.writeAtomic(artFile(track.urn), img.body)
             }
         }
-        true
     }
 
     private fun storeAudio(urn: String, audio: QualityAudio) {
         val target = "$dir/${base(urn)}.${StreamFiles.extFor(audio.bytes)}"
         Fs.writeAtomic(target, audio.bytes)
+        locked(lock) { validated.remove(urn); revisions[urn] = (revisions[urn] ?: 0) + 1 }
         exts.map { "$dir/${base(urn)}.$it" }.filter { it != target }.forEach { Fs.delete(it) }
         qualityStore.edit().putString(urn, audio.tier.label).apply()
     }
 
     actual fun cancelList(context: PlatformContext, key: String) {
         if (key == UPGRADE_KEY) upgradeJob?.cancel()
-        val dropped = locked(pending) {
-            val gone = pending.filter { it.second == key }.map { it.first.urn }
+        locked(pending) {
+            val gone = pending.filter { it.second == key }.map { it.first.urn }.toSet()
             pending.removeAll { it.second == key }
-            gone
+            queued = queued - gone
+            activeLists = activeLists - key
         }
-        queued = queued - dropped.toSet()
-        activeLists = activeLists - key
     }
 
     actual suspend fun remove(urn: String) = removeAll(listOf(urn))
@@ -149,7 +188,7 @@ actual object Downloads {
                 exts.forEach { e -> Fs.delete("$dir/${base(u)}.$e") }
                 Fs.delete(artFile(u))
                 qualityStore.edit().remove(u).apply()
-                locked(lock) { index.remove(u) }
+                locked(lock) { index.remove(u); validated.remove(u); revisions[u] = (revisions[u] ?: 0) + 1 }
             }
             save()
         }
@@ -159,6 +198,78 @@ actual object Downloads {
     actual fun artPath(urn: String): String? = artFile(urn).takeIf { isDownloaded(urn) && Fs.exists(it) }
 
     actual fun localPath(urn: String): String? = audioPath(urn).takeIf { isDownloaded(urn) }
+
+    fun readyLocal(track: Track): String? = locked(lock) {
+        val expected = maxOf(track.duration, track.full_duration ?: 0L, DurationCache.get(track.urn))
+        localPath(track.urn)?.takeIf { validated[track.urn] == expected && Fs.exists(it) }
+    }
+
+    suspend fun playablePath(track: Track, forceCheck: Boolean = false, allowNetworkRepair: Boolean = true, onRepair: () -> Unit = {}): String? {
+        if (forceCheck && (track.urn == NowPlaying.urn || track.urn in inProgress)) return null
+        if (!forceCheck) readyLocal(track)?.let { return it }
+        if (!isDownloaded(track.urn)) return null
+        val revision = locked(lock) { revisions[track.urn] ?: 0 }
+        val path = localPath(track.urn)?.takeIf { Fs.exists(it) } ?: return null
+        val valid = withContext(IoDispatcher) {
+            val bytes = Fs.readAtomic(path) ?: return@withContext null
+            StreamFiles.prepare(track, bytes)?.let { it to (it !== bytes) }
+        }
+        if (valid?.second == false) return locked(lock) {
+            if (!isDownloaded(track.urn) || (revisions[track.urn] ?: 0) != revision || !Fs.exists(path)) null
+            else {
+                validated[track.urn] = maxOf(track.duration, track.full_duration ?: 0L, DurationCache.get(track.urn))
+                path
+            }
+        }
+        val audio = if (valid == null) {
+            if (Prefs.offline || !allowNetworkRepair) return null
+            StreamFiles.audio(track, QualityLadder.downloadWanted()) ?: return null
+        } else null
+        return mutex.withLock {
+            if (!isDownloaded(track.urn)) return@withLock null
+            if (forceCheck && (track.urn == NowPlaying.urn || track.urn in inProgress)) return@withLock null
+            if (locked(lock) { (revisions[track.urn] ?: 0) != revision }) return@withLock readyLocal(track)
+            withContext(IoDispatcher) {
+                currentCoroutineContext().ensureActive()
+                if (audio != null) {
+                    storeAudio(track.urn, audio)
+                    WaveCache.prefetch(track.urn, track.waveform_url)
+                    Logs.add("cache", "repaired ${track.urn}")
+                } else if (valid?.second == true) {
+                    Fs.writeAtomic(path, valid.first)
+                    locked(lock) { revisions[track.urn] = revision + 1 }
+                    Logs.add("cache", "repaired local audio ${track.urn}")
+                }
+            }
+            if (audio != null || valid?.second == true) onRepair()
+            locked(lock) { validated[track.urn] = maxOf(track.duration, track.full_duration ?: 0L, DurationCache.get(track.urn)) }
+            localPath(track.urn)
+        }
+    }
+
+    suspend fun repairCached() {
+        val migration = IosKvStore("audio_integrity")
+        if (migration.getInt("repair_revision", 0) >= 2) return
+        var complete = true
+        for (track in tracks()) {
+            currentCoroutineContext().ensureActive()
+            if (!isScUrn(track.urn)) continue
+            if (track.urn == NowPlaying.urn || track.urn in inProgress) {
+                complete = false
+                continue
+            }
+            try {
+                val allowNetwork = !Prefs.offline && !PlatformHooks.meteredBlocked()
+                if (playablePath(track, forceCheck = true, allowNetworkRepair = allowNetwork) == null) complete = false
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                complete = false
+                Logs.add("cache", "repair ${track.urn}: ${e::class.simpleName}")
+            }
+        }
+        if (complete) migration.edit().putInt("repair_revision", 2).apply()
+    }
 
     actual fun upgradeAll(context: PlatformContext, onResult: (Int) -> Unit) {
         if (Prefs.offline || upgradeJob?.isActive == true) return
@@ -189,6 +300,7 @@ actual object Downloads {
                                 currentCoroutineContext().ensureActive()
                                 if (audio.tier.rank > current.rank) {
                                     storeAudio(track.urn, audio)
+                                    WaveCache.prefetch(track.urn, track.waveform_url)
                                     Logs.add("download", "${track.title.take(30)}: ${current.badge} → ${audio.tier.badge}")
                                 }
                             }
@@ -207,7 +319,24 @@ actual object Downloads {
         }
     }
 
-    actual suspend fun backfillArt() {}
+    actual suspend fun backfillArt() {
+        restoreArtwork()
+    }
+
+    suspend fun restoreArtwork(): Pair<Int, Int> = withContext(IoDispatcher) {
+        artworkMutex.withLock {
+            val session = Api.sessionId
+            val missing = tracks().filter { StreamFiles.sizeOf(artFile(it.urn)) == 0L }
+            var restored = 0
+            for (track in missing) {
+                currentCoroutineContext().ensureActive()
+                if (Prefs.offline || PlatformHooks.meteredBlocked() || Api.sessionId != session) break
+                saveArtwork(track, recover = true)
+                if (StreamFiles.sizeOf(artFile(track.urn)) > 0L) restored++
+            }
+            restored to missing.size
+        }
+    }
 }
 
 object StreamPicker {

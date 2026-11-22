@@ -67,7 +67,7 @@ Go to the [releases page](https://github.com/okeydw/SoundCloud-iOS/releases/late
 
 **How to install:** step-by-step guide [here](https://docs.getsoundcloud.app/install/ios).
 
-**Not on iOS yet:** import, equalizer, SoundCloud Auto, audio output selection and in-app updates.
+**Not on iOS yet:** import, SoundCloud Auto, audio output selection and in-app updates.
 
 ---
 
@@ -105,14 +105,19 @@ Next comes sign-in, either through SoundCloud or with a QR code from the Desktop
 
 - **Wave and recommendations** - our own recommendation system based on your likes and listening history
 - **Search** - tracks, artists, playlists, albums and vibe search (a neural network picks tracks based on context)
-- **Player** - shuffle, repeat, queue, lyrics, likes and dislikes
+- **Player** - shuffle, repeat, queue, lyrics, likes and dislikes. Tap the artist name in the expanded player to open their profile. In track lists, tapping the name plays the track.
+- **Equalizer** - ready-made presets and your own custom preset
+- **Speed and pitch** - preserve pitch when changing speed, let pitch follow speed, or adjust pitch independently in semitones. These controls are in the equalizer settings.
+- **Custom images** - choose, replace or remove a background from Photos, with blur and dimming in appearance settings. Change a playlist cover from its menu.
 - **Playlists** - your own local playlists synced to SoundCloud, public or private, track order changes by drag and drop and is saved
+- **Sorting and liked-track order** - a compact sorting icon above tracks in the Me categories: title, artist, duration and other fields. Use “Change order” to move liked tracks manually; the order is saved on the device and used for playback. Playlists have no sorting control.
 - **History and stats** - listening time, top tracks and artists, charts by day and by hour
 - **Profiles** - follow and unfollow, links from the SoundCloud profile
 
 ### Offline mode
 
 - Download tracks and playlists, offline mode with cache
+- **HLS repair** - saved tracks are checked before playback. Run a manual check of downloads and cache in Settings → Storage → Check integrity. Damaged downloads are repaired or downloaded again when online; incomplete cache files are removed and reloaded on playback. The current track is skipped, and the result shows remaining files.
 
 ---
 
@@ -150,7 +155,7 @@ The full list of changes is in [CHANGELOG.md](../CHANGELOG.en.md).
 **Build:** macOS, Xcode, JDK 17, [XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
 ```bash
-./gradlew :core:compileKotlinIosArm64 :ui:compileKotlinIosArm64   # shared code compiles for iOS
+./gradlew :core:compileKotlinIosArm64 :ui:compileKotlinIosArm64# shared code compiles for iOS
 cd iosApp && xcodegen generate                                    # Xcode project from project.yml
 open SoundCloud.xcodeproj                                         # the Kotlin framework builds itself
 ```

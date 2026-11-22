@@ -67,7 +67,7 @@ Geh auf die [Release-Seite](https://github.com/okeydw/SoundCloud-iOS/releases/la
 
 **Installation:** Schritt-für-Schritt-Anleitung [hier](https://docs.getsoundcloud.app/install/ios).
 
-**Noch nicht auf iOS:** Import, Equalizer, SoundCloud Auto, Wahl des Audioausgangs und Updates aus der App.
+**Noch nicht auf iOS:** Import, SoundCloud Auto, Wahl des Audioausgangs und Updates aus der App.
 
 ---
 
@@ -105,14 +105,19 @@ Danach folgt die Anmeldung, entweder über SoundCloud oder per QR-Code aus der D
 
 - **Welle und Empfehlungen** - eigenes Empfehlungssystem auf Basis deiner Likes und deines Hörverlaufs
 - **Suche** - Tracks, Künstler, Playlists, Alben und Vibe-Suche (ein neuronales Netz wählt Tracks passend zum Kontext)
-- **Player** - Shuffle, Wiederholen, Warteschlange, Songtexte, Likes und Dislikes
+- **Player** - Shuffle, Wiederholen, Warteschlange, Songtexte, Likes und Dislikes. Tippe im ausgeklappten Player auf den Künstlernamen, um das Profil zu öffnen. In Tracklisten startet ein Tippen auf den Namen den Track.
+- **Equalizer** - fertige Presets und eigene Presets
+- **Geschwindigkeit und Tonhöhe** - Tonhöhe bei Geschwindigkeitsänderungen beibehalten, mitverändern oder unabhängig in Halbtönen einstellen. Die Regler befinden sich in den Equalizer-Einstellungen.
+- **Eigene Bilder** - Hintergrund aus Fotos auswählen, ersetzen oder entfernen; Unschärfe und Abdunklung in den Darstellungseinstellungen anpassen. Playlist-Cover lassen sich über das Playlist-Menü ändern.
 - **Playlists** - eigene lokale Playlists mit Synchronisierung zu SoundCloud, öffentlich oder privat, die Reihenfolge lässt sich per Drag and Drop ändern und wird gespeichert
+- **Sortierung und Reihenfolge der Likes** - ein kompaktes Symbol über den Titeln unter „Ich“: Titel, Interpret, Dauer und weitere Felder. Über „Reihenfolge ändern“ lassen sich Likes manuell verschieben; die Reihenfolge wird auf dem Gerät gespeichert und bei der Wiedergabe verwendet. Playlists haben keine Sortierfunktion.
 - **Verlauf und Statistik** - Hörzeit, Top-Tracks und Top-Künstler, Diagramme nach Tagen und Stunden
 - **Profile** - folgen und entfolgen, Links aus dem SoundCloud-Profil
 
 ### Offline-Modus
 
 - Tracks und Playlists herunterladen, Offline-Modus mit Cache
+- **HLS-Reparatur** - gespeicherte Titel werden vor der Wiedergabe geprüft. Downloads und Cache lassen sich unter Einstellungen → Speicher → Integrität prüfen kontrollieren. Beschädigte Downloads werden repariert oder bei bestehender Verbindung neu geladen; unvollständiger Cache wird entfernt und beim Abspielen erneut geladen. Der aktuelle Titel wird übersprungen, verbleibende Dateien erscheinen im Ergebnis.
 
 ---
 
@@ -150,7 +155,7 @@ Alle Änderungen stehen in [CHANGELOG.md](../../CHANGELOG.md).
 **Build:** macOS, Xcode, JDK 17, [XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
 ```bash
-./gradlew :core:compileKotlinIosArm64 :ui:compileKotlinIosArm64   # gemeinsamer Code kompiliert für iOS
+./gradlew :core:compileKotlinIosArm64 :ui:compileKotlinIosArm64# gemeinsamer Code kompiliert für iOS
 cd iosApp && xcodegen generate                                    # Xcode-Projekt aus project.yml
 open SoundCloud.xcodeproj                                         # das Kotlin-Framework baut sich selbst
 ```

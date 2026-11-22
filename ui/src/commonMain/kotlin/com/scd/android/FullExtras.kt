@@ -71,7 +71,7 @@ fun GlassLyricsSheet(urn: String, controller: QueuePlayer, onClose: () -> Unit) 
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Eyebrow(stringResource(Res.string.dock_lyrics), color = p.text3)
-                        Text(NowPlaying.title, style = GlassType.rowTitle, color = p.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(controller.currentTrack?.displayTitle ?: formattedTrackTitle(NowPlaying.title, NowPlaying.artist), style = GlassType.rowTitle, color = p.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(NowPlaying.artist, style = GlassType.small, color = p.text2, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }

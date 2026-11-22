@@ -4,6 +4,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -89,7 +92,14 @@ fun Backdrop(
     val p = LocalGlass.current
     val fx = LocalFx.current
     val time by rememberAmbientTime(fx.drift && NowPlaying.isPlaying)
-    val orbColors = colors.ifEmpty { listOf(p.accent) }
+    val targets = colors.ifEmpty { listOf(p.accent) }
+    val orbColors = List(3) { index ->
+        animateColorAsState(
+            targetValue = targets[index % targets.size],
+            animationSpec = tween(650, easing = FastOutSlowInEasing),
+            label = "ambient colour $index",
+        ).value
+    }
     Box(modifier.fillMaxSize().background(p.bgBrush())) {
         val path = if (wallpaper) Prefs.backgroundImage else null
         if (path != null) {

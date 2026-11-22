@@ -31,7 +31,7 @@ object LikesAutoCache {
             var page = 0
             while (page < 40) {
                 val res = runCatching { Api.likedTracks(page, 50) }.getOrNull() ?: break
-                pending += res.collection.filter { !Downloads.isDownloaded(it.urn) && !it.starLocked }
+                pending += res.collection.filter { !Downloads.isDownloaded(it.urn) }
                 if (!res.has_more) break
                 page++
             }

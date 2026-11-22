@@ -417,7 +417,7 @@ class PlayerBrain(
         if (count == 0 || player.currentMediaItemIndex < count - tail) return
         val existing = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId }.toSet()
         fun usable(list: List<Track>) = list.filter {
-            it.urn !in existing && !it.starLocked && (!it.unavailable || Prefs.playBlocked) &&
+            it.urn !in existing && (!it.unavailable || Prefs.playBlocked) &&
                 !it.hidden
         }
         var add = emptyList<Track>()

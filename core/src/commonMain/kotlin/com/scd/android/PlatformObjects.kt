@@ -27,6 +27,7 @@ expect object Downloads {
     var activeLists: Set<String>
     fun isDownloaded(urn: String): Boolean
     fun tracks(): List<Track>
+    internal fun savedTrack(urn: String): Track?
     fun cachedQuality(urn: String): String?
     suspend fun quality(urn: String): String?
     fun enqueue(

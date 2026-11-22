@@ -1,5 +1,6 @@
 package com.scd.android
 
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -65,5 +66,17 @@ fun CappedFontScale(max: Float = 1.15f, content: @Composable () -> Unit) {
         content()
     } else {
         CompositionLocalProvider(LocalDensity provides Density(d.density, max)) { content() }
+    }
+}
+
+@Composable
+fun TrackEqBinding() {
+    val urn = NowPlaying.urn ?: return
+    if (Prefs.carEqBackup() != null) return
+    val saved = Prefs.trackEqSaved
+    androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+        TrackPresetButton(stringResource(if (saved) Res.string.eq_track_saved else Res.string.eq_track_save), saved) {
+            Prefs.bindTrackEq(urn, !saved)
+        }
     }
 }

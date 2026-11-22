@@ -301,6 +301,7 @@ fun updateBannerText(tag: String): String = when (Updater.state) {
 fun UpdatePrompt(tag: String, url: String, onDismiss: () -> Unit) {
     val context = LocalAppContext.current
     val asset = Updater.asset
+    val ios = appEdition(context) == "ios"
     fun openPage() {
         openLink(context, url)
     }
@@ -309,6 +310,7 @@ fun UpdatePrompt(tag: String, url: String, onDismiss: () -> Unit) {
             Text(stringResource(Res.string.new_version, tag), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(10.dp))
             val body = when {
+                ios -> asset?.name ?: "IPA"
                 asset == null -> stringResource(Res.string.update_no_apk)
                 Updater.state == UpdateState.ForeignKey -> stringResource(Res.string.update_foreign_key)
                 Updater.state == UpdateState.Downloading -> stringResource(Res.string.update_downloading, (Updater.progress * 100).toInt())

@@ -75,6 +75,7 @@ fun GlassEqualizer(onClose: (() -> Unit)?) {
         }
     }
     Spacer(Modifier.height(12.dp))
+    TrackEqBinding()
     val readout = if (focus in 0 until EqCurve.BANDS) {
         stringResource(Res.string.eq_band_readout, EqCurve.FREQS[focus].toLong().toString(), EqCurve.signed(gains[focus]))
     } else {

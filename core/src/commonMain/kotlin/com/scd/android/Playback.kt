@@ -52,6 +52,9 @@ object Playback {
         NowPlaying.autoContinue = autoContinue
         LocalRadio.stopTrackRadio()
         val (arranged, start) = ShuffleQueue.arrange(queue, index)
+        listOfNotNull(arranged.getOrNull(start), arranged.getOrNull(start + 1), arranged.getOrNull(start - 1)).forEach {
+            WaveCache.prefetch(it.urn, it.waveform_url)
+        }
         p.setTracks(arranged, start, if (arranged.getOrNull(start)?.urn == track.urn) startMs else 0L)
         p.prepare()
         p.play()

@@ -66,17 +66,25 @@ fun Player.queue(): QueuePlayer = Media3Queue(this)
 
 fun NowPlaying.sync(c: MediaController) {
     val md = c.currentMediaItem?.mediaMetadata
-    urn = c.currentMediaItem?.mediaId
-    title = md?.title?.toString() ?: ""
-    artist = md?.artist?.toString() ?: ""
-    artistUrn = md?.extras?.getString("artist_urn")
-    artworkUri = md?.artworkUri?.toString()
-    waveformUrl = md?.extras?.getString("waveform_url")
-    genre = md?.extras?.getString("genre")
-    isPlaying = c.isPlaying
-    shuffle = ShuffleQueue.on && !ShuffleQueue.isWave(urn)
-    repeatMode = c.repeatMode
+    androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+        urn = c.currentMediaItem?.mediaId
+        title = md?.title?.toString() ?: ""
+        artist = md?.artist?.toString() ?: ""
+        artistUrn = md?.extras?.getString("artist_urn")
+        artworkUri = md?.artworkUri?.toString()
+        waveformUrl = md?.extras?.getString("waveform_url")
+        genre = md?.extras?.getString("genre")
+        isPlaying = c.isPlaying
+        shuffle = ShuffleQueue.on && !ShuffleQueue.isWave(urn)
+        repeatMode = c.repeatMode
+    }
     WaveState.remember(urn, c.currentPosition)
+    WaveCache.prefetch(urn, waveformUrl)
+    val next = c.nextMediaItemIndex
+    if (next in 0 until c.mediaItemCount) {
+        val item = c.getMediaItemAt(next)
+        WaveCache.prefetch(item.mediaId, item.mediaMetadata.extras?.getString("waveform_url"))
+    }
 }
 
 fun Recommendations.init(context: Context) {

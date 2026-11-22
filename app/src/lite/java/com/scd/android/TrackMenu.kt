@@ -57,7 +57,7 @@ fun TrackMenuDialog(track: Track, onDismiss: () -> Unit, onPlay: () -> Unit, onR
                 Spacer(Modifier.width(12.dp))
                 SelectionContainer(Modifier.weight(1f)) {
                     Column {
-                        Text(track.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(track.displayTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Text(
                             track.user?.username ?: "",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,

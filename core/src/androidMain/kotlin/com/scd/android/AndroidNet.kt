@@ -139,7 +139,8 @@ class OkHttpEngine : HttpEngine {
             .url(r.url)
             .apply {
                 r.headers.forEach { (k, v) -> header(k, v) }
-                if (r.forceNetwork) cacheControl(CacheControl.FORCE_NETWORK)
+                if (r.cacheOnly) cacheControl(CacheControl.FORCE_CACHE)
+                else if (r.forceNetwork) cacheControl(CacheControl.FORCE_NETWORK)
             }
             .method(r.method, body)
             .build()

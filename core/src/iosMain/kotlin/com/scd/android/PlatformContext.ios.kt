@@ -9,7 +9,7 @@ actual abstract class PlatformContext private constructor() {
     companion object INSTANCE : PlatformContext()
 }
 
-actual fun hasNetwork(context: PlatformContext): Boolean = true
+actual fun hasNetwork(context: PlatformContext): Boolean = IosNet.connected
 
 actual fun openInBrowser(context: PlatformContext, url: String) {
     val u = NSURL.URLWithString(url) ?: return

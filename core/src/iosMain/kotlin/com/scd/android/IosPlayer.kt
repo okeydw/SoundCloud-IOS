@@ -36,12 +36,16 @@ class IosPlayer : QueuePlayer {
     private var loading = false
     private var hasFailed = false
     private var filePath: String? = null
+    private var streamed = false
+    private var forceFile = false
+    private var activeItem: AVPlayerItem? = null
     private var retriedUrn: String? = null
     private var prefetchUrn: String? = null
     private var loadJob: Job? = null
     private var fillJob: Job? = null
     private var resumeRetries = 0
     private var skipped = 0
+    private val alternativeTried = mutableSetOf<String>()
     private var recordedDuration: String? = null
     private val listeners = ArrayList<QueueListener>()
 
@@ -49,6 +53,7 @@ class IosPlayer : QueuePlayer {
     private var evPos = 0L
     private var evDur = 0L
     private var lastReportedUrn: String? = null
+    private var historyRetryAt = 0L
 
     private var artUrn: String? = null
     private var artwork: MPMediaItemArtwork? = null
@@ -56,27 +61,40 @@ class IosPlayer : QueuePlayer {
     private var ticks = 0
     private var interruptedWhilePlaying = false
 
+    private var pendingReplay: Any? = null
+
+    override var repeatMode: Int = Prefs.repeatMode.coerceIn(0, 2)
+        set(value) {
+            field = value
+            Prefs.changeRepeatMode(value)
+            MPRemoteCommandCenter.sharedCommandCenter().changeRepeatModeCommand.currentRepeatType = systemRepeat(value)
+            configureEndAction(value)
+            if (value == REPEAT_ONE) dropPreload()
+            notifyChanged()
+        }
+
     init {
         runCatching { AVAudioSession.sharedInstance().setCategory(AVAudioSessionCategoryPlayback, error = null) }
         av.automaticallyWaitsToMinimizeStalling = true
+        configureEndAction(repeatMode)
         val center = NSNotificationCenter.defaultCenter
         center.addObserverForName(AVPlayerItemDidPlayToEndTimeNotification, null, NSOperationQueue.mainQueue) { n: NSNotification? ->
             val item = n?.`object` as? AVPlayerItem
-            if (item != null && item != preItem) onEnded()
+            if (item != null && item == activeItem) onEnded()
         }
         center.addObserverForName(AVPlayerItemFailedToPlayToEndTimeNotification, null, NSOperationQueue.mainQueue) { n: NSNotification? ->
             val item = n?.`object` as? AVPlayerItem
-            if (item != null && item != preItem) onItemError("stalled")
+            if (item != null && item == activeItem) onItemError("stalled")
         }
         center.addObserverForName(AVAudioSessionInterruptionNotification, null, NSOperationQueue.mainQueue) { n: NSNotification? ->
             val type = (n?.userInfo?.get(AVAudioSessionInterruptionTypeKey) as? NSNumber)?.unsignedLongValue
             if (type == 1uL) {
-                interruptedWhilePlaying = isPlaying
+                interruptedWhilePlaying = isPlaying || (pendingReplay != null && wantPlay)
                 sessionActive = false
             } else if (interruptedWhilePlaying) {
                 interruptedWhilePlaying = false
                 runCatching { AVAudioSession.sharedInstance().setActive(true, error = null) }
-                play()
+                if (wantPlay) play()
             }
         }
         remoteCommands()
@@ -109,7 +127,7 @@ class IosPlayer : QueuePlayer {
             val s = item?.let { CMTimeGetSeconds(it.duration) } ?: Double.NaN
             if (!s.isNaN() && !s.isInfinite() && s > 0) return (s * 1000).toLong()
             val t = tracks.getOrNull(cur) ?: return 0L
-            return maxOf(DurationCache.get(t.urn), t.full_duration ?: t.duration).coerceAtLeast(0L)
+            return maxOf(DurationCache.get(t.urn), t.duration, t.full_duration ?: 0L).coerceAtLeast(0L)
         }
 
     override var shuffle: Boolean
@@ -119,13 +137,9 @@ class IosPlayer : QueuePlayer {
             notifyChanged()
         }
 
-    override var repeatMode: Int = Prefs.repeatMode.coerceIn(0, 2)
-        set(value) {
-            field = value
-            Prefs.changeRepeatMode(value)
-            if (value == REPEAT_ONE) dropPreload()
-            notifyChanged()
-        }
+    private fun configureEndAction(mode: Int) {
+        av.actionAtItemEnd = if (mode == REPEAT_ONE) AVPlayerActionAtItemEndPause else AVPlayerActionAtItemEndAdvance
+    }
 
     private fun step(dir: Int): Int {
         if (tracks.isEmpty()) return -1
@@ -142,6 +156,7 @@ class IosPlayer : QueuePlayer {
     }
 
     override fun setTracks(tracks: List<Track>, index: Int, positionMs: Long) {
+        forceFile = false
         noteTransition(Reason.LIST)
         this.tracks.clear()
         this.tracks.addAll(tracks)
@@ -171,8 +186,54 @@ class IosPlayer : QueuePlayer {
         if (tracks.isEmpty()) return
         wantPlay = true
         activateSession()
-        if (av.currentItem == null && !loading || hasFailed) load() else av.play()
+        if (av.currentItem == null && !loading || hasFailed) load() else playAtRate()
         notifyChanged()
+    }
+
+    private var appliedRate = Float.NaN
+    private var appliedPitchMode: String? = null
+    private var appliedPitchActive = false
+
+    private fun pitchAlgorithm() = if (Prefs.pitchMode == SpeedPitch.MODE_AUTO) {
+        AVAudioTimePitchAlgorithmVarispeed
+    } else {
+        AVAudioTimePitchAlgorithmSpectral
+    }
+
+    private fun applySpeedPitch() {
+        val rate = SpeedPitch.clampRate(Prefs.playbackRate)
+        val mode = Prefs.pitchMode
+        val pitchActive = updatePitchSetting()
+        if (appliedPitchActive != pitchActive) {
+            appliedPitchActive = pitchActive
+            val path = filePath
+            if (av.currentItem != null && !loading && path != null) {
+                pendingPos = positionMs
+                dropPreload()
+                startFile(path)
+            }
+        }
+        if (appliedRate == rate && appliedPitchMode == mode) return
+        val algorithm = pitchAlgorithm()
+        av.currentItem?.audioTimePitchAlgorithm = algorithm
+        preItem?.audioTimePitchAlgorithm = algorithm
+        if (wantPlay && pendingReplay == null && av.currentItem != null) av.playImmediatelyAtRate(rate)
+        appliedRate = rate
+        appliedPitchMode = mode
+        updateNowPlaying()
+    }
+
+    private fun updatePitchSetting(): Boolean {
+        IosPitch.cents = if (Prefs.pitchMode == SpeedPitch.MODE_MANUAL && SpeedPitch.manualPitchSupported) {
+            SpeedPitch.clampSemitones(Prefs.pitchSemitones) * 100f
+        } else 0f
+        return IosPitch.cents != 0f
+    }
+
+    private fun playAtRate() {
+        if (pendingReplay != null) return
+        applySpeedPitch()
+        av.playImmediatelyAtRate(SpeedPitch.clampRate(Prefs.playbackRate))
     }
 
     override fun pause() {
@@ -182,8 +243,11 @@ class IosPlayer : QueuePlayer {
     }
 
     override fun seekTo(positionMs: Long) {
-        if (av.currentItem == null || loading) {
+        val item = av.currentItem
+        if (item == null || loading) {
             pendingPos = positionMs
+        } else if (pendingReplay != null) {
+            seekForReplay(item, positionMs)
         } else {
             av.seekToTime(CMTimeMakeWithSeconds(positionMs / 1000.0, 1000))
         }
@@ -298,12 +362,16 @@ class IosPlayer : QueuePlayer {
     }
 
     private fun notifyChanged() {
+        Prefs.activateTrackEq(currentUrn)
         NowPlaying.sync(this)
         listeners.toList().forEach { runCatching { it.onChanged() } }
         updateNowPlaying()
     }
 
     private fun stopItem() {
+        pendingReplay = null
+        activeItem = null
+        streamed = false
         loadJob?.cancel()
         loading = false
         av.pause()
@@ -324,11 +392,11 @@ class IosPlayer : QueuePlayer {
     }
 
     private fun preloadNext() {
-        if (preItem != null || loading || av.currentItem == null || repeatMode == REPEAT_ONE) return
+        if (SleepTimer.endOfTrack || preItem != null || loading || av.currentItem == null || repeatMode == REPEAT_ONE) return
         val n = nextIndex
         val t = tracks.getOrNull(n) ?: return
         if (n == cur) return
-        val path = Downloads.localPath(t.urn)?.takeIf { Fs.exists(it) } ?: StreamFiles.readyCached(t.urn) ?: return
+        val path = Downloads.readyLocal(t) ?: StreamFiles.readyCached(t) ?: return
         val item = newItem(path)
         if (!av.canInsertItem(item, afterItem = av.currentItem)) return
         av.insertItem(item, afterItem = av.currentItem)
@@ -348,6 +416,10 @@ class IosPlayer : QueuePlayer {
         val prevUrn = currentUrn
         noteTransition(Reason.AUTO)
         cur = n
+        Prefs.activateTrackEq(currentUrn)
+        activeItem = item
+        streamed = false
+        forceFile = false
         filePath = preFile
         pendingPos = 0L
         recordedDuration = null
@@ -361,7 +433,7 @@ class IosPlayer : QueuePlayer {
             av.removeAllItems()
             av.insertItem(item, afterItem = null)
         }
-        if (wantPlay) av.play()
+        if (wantPlay) playAtRate()
         if (prevUrn != null && prevUrn != currentUrn) WaveFeedback.positive(prevUrn)
         val urn = currentUrn
         if (urn != null && Dislikes.isDisliked(urn) && nextIndex >= 0) {
@@ -375,6 +447,7 @@ class IosPlayer : QueuePlayer {
     }
 
     private fun transition(index: Int, reason: Reason, positionMs: Long) {
+        forceFile = false
         val prevUrn = currentUrn
         val prevPos = evPos
         noteTransition(reason)
@@ -397,6 +470,8 @@ class IosPlayer : QueuePlayer {
     }
 
     private fun noteTransition(reason: Reason) {
+        lastReportedUrn = null
+        historyRetryAt = 0L
         val prev = evUrn
         val pos = evPos
         val dur = evDur
@@ -415,42 +490,102 @@ class IosPlayer : QueuePlayer {
 
     private fun load() {
         val t = tracks.getOrNull(cur) ?: return
+        Prefs.activateTrackEq(t.urn)
         stopItem()
         hasFailed = false
         loading = true
         recordedDuration = null
         filePath = null
-        val local = Downloads.localPath(t.urn)?.takeIf { Fs.exists(it) } ?: StreamFiles.readyCached(t.urn)
+        val local = Downloads.readyLocal(t) ?: StreamFiles.readyCached(t)
         if (local != null) {
             startFile(local)
             return
         }
         val urn = t.urn
+        val session = Api.sessionId
         notifyChanged()
         loadJob = scope.launch {
             val path = try {
-                StreamFiles.get(t)
+                val saved = Downloads.playablePath(t)
+                if (saved == null && !forceFile && StreamFiles.cached(urn) == null) {
+                    val source = try { StreamFiles.streamingSource(t) }
+                    catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch (_: Exception) { null }
+                    if (currentUrn != urn || Api.sessionId != session) return@launch
+                    if (source != null) {
+                        streamed = true
+                        ServedQuality.record(urn, source.second)
+                        startItem(AVPlayerItem.playerItemWithURL(source.first).also { it.audioTimePitchAlgorithm = pitchAlgorithm() })
+                        return@launch
+                    }
+                }
+                saved ?: StreamFiles.get(t)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Logs.add("player", "source ${e::class.simpleName}")
                 null
             }
-            if (currentUrn != urn) return@launch
-            if (path == null) trackFailed("no source") else startFile(path)
+            if (currentUrn != urn || Api.sessionId != session) return@launch
+            if (path != null) {
+                startFile(path)
+                return@launch
+            }
+            val copy = if (!Prefs.offline && Together.room == null && isScUrn(urn) && urn !in alternativeTried) {
+                if (alternativeTried.size > 300) alternativeTried.clear()
+                alternativeTried.add(urn)
+                AlternativeUpload.find(t)
+            } else null
+            if (currentUrn != urn || Api.sessionId != session) return@launch
+            if (copy != null && !Prefs.offline && Together.room == null) {
+                val otherPath = try {
+                    Downloads.playablePath(copy) ?: StreamFiles.get(copy)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Logs.add("player", "alternative source ${e::class.simpleName}")
+                    null
+                }
+                if (currentUrn != urn || Api.sessionId != session) return@launch
+                if (otherPath != null && Together.room == null && !Prefs.offline) {
+                    alternativeTried.add(copy.urn)
+                    Logs.add("player", "alternative upload $urn → ${copy.urn}")
+                    noteTransition(Reason.LIST)
+                    tracks[cur] = copy
+                    Prefs.activateTrackEq(copy.urn)
+                    evUrn = copy.urn
+                    pendingPos = pendingPos.coerceIn(0L, maxOf(copy.duration, copy.full_duration ?: 0L))
+                    startFile(otherPath)
+                    Toasts.show(Strings.get("playing_another_upload").replace("%1\$s", copy.title))
+                    return@launch
+                }
+            }
+            trackFailed("no source")
         }
     }
 
     private fun newItem(path: String): AVPlayerItem =
-        AVPlayerItem.playerItemWithURL(NSURL.fileURLWithPath(path)).also { IosEq.attach(it) }
+        AVPlayerItem.playerItemWithURL(NSURL.fileURLWithPath(path)).also {
+            it.audioTimePitchAlgorithm = pitchAlgorithm()
+            IosEq.attach(it, pitchEnabled = updatePitchSetting())
+        }
 
     private fun startFile(path: String) {
+        appliedPitchActive = updatePitchSetting()
         filePath = path
+        streamed = false
+        startItem(newItem(path))
+    }
+
+    private fun startItem(item: AVPlayerItem) {
+        pendingReplay = null
+        activeItem = item
         av.removeAllItems()
-        av.insertItem(newItem(path), afterItem = null)
+        av.insertItem(item, afterItem = null)
+        av.volume = volumeAt(pendingPos, durationMs)
         if (pendingPos > 0L) av.seekToTime(CMTimeMakeWithSeconds(pendingPos / 1000.0, 1000))
         loading = false
-        if (wantPlay) av.play()
+        if (wantPlay) playAtRate()
         notifyChanged()
     }
 
@@ -458,6 +593,12 @@ class IosPlayer : QueuePlayer {
         val urn = currentUrn
         val pos = positionMs
         Logs.add("player", detail)
+        if (streamed) {
+            forceFile = true
+            pendingPos = pos
+            load()
+            return
+        }
         stopItem()
         if (urn != null && filePath != null && !Downloads.isDownloaded(urn) && retriedUrn != urn) {
             retriedUrn = urn
@@ -494,13 +635,56 @@ class IosPlayer : QueuePlayer {
         notifyChanged()
     }
 
+    private fun isShortStream(duration: Long): Boolean {
+        if (!streamed || duration <= 0) return false
+        val track = tracks.getOrNull(cur) ?: return false
+        val expected = maxOf(track.duration, track.full_duration ?: 0L, DurationCache.get(track.urn))
+        return AudioCompleteness.rejection(duration, 0, expected) != null
+    }
+
+    private fun seekForReplay(item: AVPlayerItem, position: Long) {
+        val request = Any()
+        pendingReplay = request
+        pendingPos = position
+        val target = CMTimeMakeWithSeconds(position / 1000.0, 1000)
+        val zero = CMTimeMake(0, 1)
+        av.seekToTime(target, toleranceBefore = zero, toleranceAfter = zero) { finished ->
+            scope.launch {
+                if (pendingReplay !== request) return@launch
+                pendingReplay = null
+                if (activeItem != item) return@launch
+                if (!finished || av.currentItem != item) {
+                    load()
+                    return@launch
+                }
+                av.volume = volumeAt(positionMs, durationMs)
+                if (wantPlay && !interruptedWhilePlaying) playAtRate()
+                notifyChanged()
+            }
+        }
+    }
+
     private fun onEnded() {
         idleTicks = 0
+        if (pendingReplay != null) return
+        val endedAt = activeItem?.let { CMTimeGetSeconds(it.currentTime()) } ?: 0.0
+        if (streamed && isShortStream((endedAt * 1000).toLong())) {
+            onItemError("short network preview")
+            return
+        }
+        if (SleepTimer.endOfTrack || SleepTimer.due()) {
+            SleepTimer.cancel()
+            pause()
+            stopItem()
+            pendingPos = 0L
+            return
+        }
         if (repeatMode == REPEAT_ONE) {
             noteTransition(Reason.REPEAT)
             evUrn = currentUrn
             pendingPos = 0L
-            load()
+            val item = av.currentItem
+            if (item != null && item == activeItem) seekForReplay(item, 0L) else load()
             return
         }
         if (advanceToPreloaded()) return
@@ -516,16 +700,52 @@ class IosPlayer : QueuePlayer {
         }
     }
 
+    private fun volumeAt(position: Long, duration: Long): Float {
+        val left = if (duration > 0) (duration - position).coerceAtLeast(0L) else -1L
+        val timer = SleepTimer.gain(trackLeftMs = left)
+        if (!Prefs.crossfade || duration <= 0) return timer
+        val fade = minOf(Prefs.crossfadeSeconds * 1000f, duration / 3f).coerceAtLeast(300f)
+        val fadeIn = position / (fade / 2).coerceIn(400f, 6000f)
+        val fadeOut = if (nextIndex >= 0) left / fade else 1f
+        return timer * minOf(fadeIn, fadeOut).coerceIn(0f, 1f)
+    }
+
     private suspend fun tick() {
         while (true) {
             delay(250)
+            if (SleepTimer.due()) {
+                SleepTimer.cancel()
+                pause()
+            }
+            if (SleepTimer.endOfTrack && preItem != null) dropPreload()
+            av.volume = volumeAt(positionMs, durationMs)
+            if (streamed && (Prefs.eqEnabled || (Prefs.pitchMode == SpeedPitch.MODE_MANUAL && Prefs.pitchSemitones != 0f))) {
+                pendingPos = positionMs
+                forceFile = true
+                load()
+            }
+            val pitchFailure = IosPitch.failure
+            if (pitchFailure != 0 && SpeedPitch.manualPitchSupported) {
+                SpeedPitch.manualPitchSupported = false
+                IosPitch.cents = 0f
+                Logs.add("player", "independent pitch disabled: AudioUnit $pitchFailure")
+                Toasts.show(Strings.get("pitch_processing_failed"))
+            }
+            applySpeedPitch()
             val item = av.currentItem
             if (item != null && !loading) {
                 if (item.status == AVPlayerItemStatusFailed) {
                     onItemError(item.error?.localizedDescription ?: "failed")
                 } else if (item.status == AVPlayerItemStatusReadyToPlay && recordedDuration != currentUrn) {
-                    recordedDuration = currentUrn
-                    DurationCache.record(currentUrn, durationMs)
+                    val length = CMTimeGetSeconds(item.duration)
+                    if (length.isFinite() && length > 0) {
+                        if (isShortStream((length * 1000).toLong())) {
+                            onItemError("short network preview")
+                            continue
+                        }
+                        recordedDuration = currentUrn
+                        DurationCache.record(currentUrn, (length * 1000).toLong())
+                    }
                 }
             }
             val playing = isPlaying
@@ -559,14 +779,17 @@ class IosPlayer : QueuePlayer {
 
     private fun watchHistory() {
         val t = tracks.getOrNull(cur) ?: return
-        if (t.urn == lastReportedUrn || !isScUrn(t.urn)) return
+        if (t.urn == lastReportedUrn || !isScUrn(t.urn) || nowMillis() < historyRetryAt) return
         val pos = positionMs
         val dur = durationMs
         if (pos >= 30_000L || (dur > 0L && pos >= dur / 2)) {
-            lastReportedUrn = t.urn
-            scope.launch {
-                runCatching {
-                    Api.postHistory(t.urn, t.title, t.user?.username ?: "", t.user?.urn, t.artwork_url, t.duration)
+            if (Api.sessionId != null) {
+                try {
+                    HistoryOutbox.record(t)
+                    lastReportedUrn = t.urn
+                } catch (_: Exception) {
+                    historyRetryAt = nowMillis() + 15_000
+                    Logs.add("history", "local save postponed")
                 }
             }
         }
@@ -586,7 +809,7 @@ class IosPlayer : QueuePlayer {
         if (tracks.isEmpty() || cur < tracks.size - tail) return
         val existing = tracks.map { it.urn }.toSet()
         fun usable(list: List<Track>) = list.filter {
-            it.urn !in existing && !it.starLocked && (!it.unavailable || Prefs.playBlocked) && !it.hidden
+            it.urn !in existing && (!it.unavailable || Prefs.playBlocked) && !it.hidden
         }
         var add = emptyList<Track>()
         var source = ""
@@ -620,23 +843,44 @@ class IosPlayer : QueuePlayer {
         withContext(Dispatchers.Main) { addTracks(add) }
     }
 
+    private fun systemRepeat(value: Int): MPRepeatType = when (value) {
+        REPEAT_ONE -> MPRepeatType.MPRepeatTypeOne
+        REPEAT_ALL -> MPRepeatType.MPRepeatTypeAll
+        else -> MPRepeatType.MPRepeatTypeOff
+    }
+
     private fun remoteCommands() {
         val c = MPRemoteCommandCenter.sharedCommandCenter()
         fun ok(block: () -> Unit): (MPRemoteCommandEvent?) -> Long = {
-            block()
-            MPRemoteCommandHandlerStatusSuccess
+            if (Together.isGuest) MPRemoteCommandHandlerStatusCommandFailed else {
+                block()
+                MPRemoteCommandHandlerStatusSuccess
+            }
         }
         c.playCommand.addTargetWithHandler(ok { play() })
         c.pauseCommand.addTargetWithHandler(ok { pause() })
         c.togglePlayPauseCommand.addTargetWithHandler(ok { if (wantPlay) pause() else play() })
         c.nextTrackCommand.addTargetWithHandler(ok { next() })
         c.previousTrackCommand.addTargetWithHandler(ok { previous() })
+        c.changeRepeatModeCommand.currentRepeatType = systemRepeat(repeatMode)
+        c.changeRepeatModeCommand.enabled = true
+        c.changeRepeatModeCommand.addTargetWithHandler { e: MPRemoteCommandEvent? ->
+            val event = e as? MPChangeRepeatModeCommandEvent
+            if (event == null || Together.isGuest) MPRemoteCommandHandlerStatusCommandFailed else {
+                repeatMode = when (event.repeatType) {
+                    MPRepeatType.MPRepeatTypeOne -> REPEAT_ONE
+                    MPRepeatType.MPRepeatTypeAll -> REPEAT_ALL
+                    else -> REPEAT_OFF
+                }
+                MPRemoteCommandHandlerStatusSuccess
+            }
+        }
         c.changePlaybackPositionCommand.addTargetWithHandler { e: MPRemoteCommandEvent? ->
             val ev = e as? MPChangePlaybackPositionCommandEvent
-            if (ev == null) {
+            if (ev == null || !ev.positionTime.isFinite() || durationMs <= 0 || Together.isGuest) {
                 MPRemoteCommandHandlerStatusCommandFailed
             } else {
-                seekTo((ev.positionTime * 1000).toLong())
+                seekTo((ev.positionTime * 1000).toLong().coerceIn(0L, durationMs))
                 MPRemoteCommandHandlerStatusSuccess
             }
         }
@@ -645,6 +889,8 @@ class IosPlayer : QueuePlayer {
     private fun updateNowPlaying() {
         val t = tracks.getOrNull(cur)
         val center = MPNowPlayingInfoCenter.defaultCenter()
+        val duration = if (t != null) durationMs else 0L
+        MPRemoteCommandCenter.sharedCommandCenter().changePlaybackPositionCommand.enabled = duration > 0 && !Together.isGuest
         if (t == null) {
             center.nowPlayingInfo = null
             return
@@ -655,11 +901,11 @@ class IosPlayer : QueuePlayer {
             loadArtwork(t)
         }
         val info = HashMap<Any?, Any?>()
-        info[MPMediaItemPropertyTitle] = t.title
+        info[MPMediaItemPropertyTitle] = t.displayTitle
         info[MPMediaItemPropertyArtist] = t.user?.username ?: ""
-        info[MPMediaItemPropertyPlaybackDuration] = durationMs / 1000.0
+        if (duration > 0L) info[MPMediaItemPropertyPlaybackDuration] = duration / 1000.0
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = positionMs / 1000.0
-        info[MPNowPlayingInfoPropertyPlaybackRate] = if (isPlaying) 1.0 else 0.0
+        info[MPNowPlayingInfoPropertyPlaybackRate] = if (isPlaying) av.rate.toDouble() else 0.0
         artwork?.let { info[MPMediaItemPropertyArtwork] = it }
         center.nowPlayingInfo = info
     }

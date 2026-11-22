@@ -34,6 +34,7 @@ class App : Application(), ImageLoaderFactory {
         installAndroidHooks(this)
         SessionGuard.init()
         DurationCache.init(this)
+        WaveCache.init(this)
         Downloads.init(this)
         FeedCache.init(this)
         LikedArtists.init(this)

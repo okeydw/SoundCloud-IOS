@@ -52,7 +52,9 @@ object Api {
     }
 
     fun storeSession(id: String?) {
+        val switched = sessionId != id
         sessionId = id
+        if (switched) Likes.reset()
         store?.edit()?.putString(KEY_SESSION, id)?.apply()
         if (id == null) onSessionCleared()
     }
@@ -66,14 +68,15 @@ object Api {
 
     private fun sessionHeader(): List<Pair<String, String>> = sessionId?.let { listOf("x-session-id" to it) }.orEmpty()
 
-    private suspend fun mutate(method: String, path: String, body: HttpBody?): String =
+    private suspend fun mutate(method: String, path: String, body: HttpBody?, session: String? = sessionId): String =
         withContext(IoDispatcher) {
             val bases = Endpoints.hostsFor(path)
             var last: Exception? = null
             for ((i, base) in bases.withIndex()) {
+                if (session != sessionId) throw kotlinx.coroutines.CancellationException("Session changed")
                 val hasNext = i < bases.lastIndex
                 val host = base.removePrefix("https://")
-                val req = HttpRequest(base + path, method, sessionHeader(), body, HttpProfile.MUTATE)
+                val req = HttpRequest(base + path, method, session?.let { listOf("x-session-id" to it) }.orEmpty(), body, HttpProfile.MUTATE)
                 try {
                     Http.execute(req).let { res ->
                         val text = res.text()
@@ -381,11 +384,43 @@ object Api {
 
     private suspend fun localBatch(limit: Int): List<Track> = waveBackup?.batch(limit) ?: emptyList()
 
-    suspend fun history(offset: Int = 0, limit: Int = 50, fresh: Boolean = false): HistoryPage =
-        getJson("$API_BASE/history?limit=$limit&offset=$offset", HistoryPage.serializer(), fresh)
+    internal suspend fun cachedLibraryPage(kind: LibraryPages.ListKind, page: Int, sid: String): LibraryPages.Page? = withContext(IoDispatcher) {
+        if (!Http.ready || sid != sessionId) return@withContext null
+        val likes = kind == LibraryPages.ListKind.LIKES
+        val offset = page * 50
+        val path = if (likes) "/me/likes/tracks?limit=50&page=$page" else "/history?limit=50&offset=$offset"
+        for (host in Endpoints.hostsFor(path)) {
+            try {
+                val request = HttpRequest(host + path, headers = listOf("x-session-id" to sid), profile = HttpProfile.API, cacheOnly = true)
+                val response = Http.execute(request)
+                if (!response.isSuccessful || response.header("vary").orEmpty().split(',').none { it.trim().equals("x-session-id", true) }) continue
+                val text = response.text()
+                if (sid != sessionId) return@withContext null
+                if (likes) {
+                    val batch = json.decodeFromString(PagedTracks.serializer(), text)
+                    if (batch.snapshotReady) return@withContext LibraryPages.Page(batch.collection, batch.has_more)
+                } else {
+                    val batch = json.decodeFromString(HistoryPage.serializer(), text)
+                    return@withContext LibraryPages.Page(batch.collection.map { it.toTrack() }, offset + batch.collection.size < batch.total)
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (_: Exception) {}
+        }
+        null
+    }
+
+    suspend fun history(offset: Int = 0, limit: Int = 50, fresh: Boolean = false): HistoryPage {
+        val session = sessionId
+        return getJson("$API_BASE/history?limit=$limit&offset=$offset", HistoryPage.serializer(), fresh).also { entries ->
+            if (limit == 50 && offset % limit == 0) LibraryPages.save(LibraryPages.ListKind.HISTORY, offset / limit,
+                entries.collection.map { it.toTrack() }, offset + entries.collection.size < entries.total, session)
+        }
+    }
 
     suspend fun clearHistory() {
-        mutate("DELETE", "/history", null)
+        val session = sessionId
+        HistoryOutbox.clear { mutate("DELETE", "/history", null) }
+        LibraryPages.save(LibraryPages.ListKind.HISTORY, 0, emptyList(), false, session)
     }
 
     suspend fun logout(sid: String): Unit = withContext(IoDispatcher) {
@@ -397,19 +432,23 @@ object Api {
         }.onFailure { Logs.add("auth", "logout failed: ${it::class.simpleName}") }
     }
 
-    suspend fun likedTracks(page: Int = 0, limit: Int = 50, fresh: Boolean = false): PagedTracks =
-        getReadyJson("$API_BASE/me/likes/tracks?limit=$limit&page=$page", PagedTracks.serializer(), fresh)
+    suspend fun likedTracks(page: Int = 0, limit: Int = 50, fresh: Boolean = false): PagedTracks {
+        val session = sessionId
+        return getReadyJson("$API_BASE/me/likes/tracks?limit=$limit&page=$page", PagedTracks.serializer(), fresh).also {
+            if (limit == 50 && it.snapshotReady) LibraryPages.save(LibraryPages.ListKind.LIKES, page, it.collection, it.has_more, session)
+        }
+    }
 
     private fun jsonBody(text: String) = HttpBody.json(text)
 
     private val emptyBody get() = HttpBody.EMPTY
 
-    suspend fun likeTrack(track: Track) {
-        mutate("POST", "/likes/tracks/${enc(track.urn)}", jsonBody(json.encodeToString(Track.serializer(), track)))
+    suspend fun likeTrack(track: Track, session: String? = sessionId) {
+        mutate("POST", "/likes/tracks/${enc(track.urn)}", jsonBody(json.encodeToString(Track.serializer(), track)), session)
     }
 
-    suspend fun unlikeTrack(urn: String) {
-        mutate("DELETE", "/likes/tracks/${enc(urn)}", null)
+    suspend fun unlikeTrack(urn: String, session: String? = sessionId) {
+        mutate("DELETE", "/likes/tracks/${enc(urn)}", null, session)
     }
 
     suspend fun myPlaylists(page: Int = 0, limit: Int = 50, fresh: Boolean = false): PagedPlaylists =
@@ -435,11 +474,12 @@ object Api {
     suspend fun me(fresh: Boolean = false): MeProfile =
         getJson("$API_BASE/me", MeProfile.serializer(), fresh)
 
-    suspend fun latestRelease(): ReleaseInfo? = withContext(IoDispatcher) {
+    suspend fun latestRelease(ios: Boolean = false): ReleaseInfo? = withContext(IoDispatcher) {
+        val repo = if (ios) "SoundCloud-iOS" else "SoundCloud-Android"
         runCatching {
             val res = Http.execute(
                 HttpRequest(
-                    "https://api.github.com/repos/okeydw/SoundCloud-Android/releases/latest",
+                    "https://api.github.com/repos/okeydw/$repo/releases/latest",
                     headers = listOf("Accept" to "application/vnd.github+json"),
                     forceNetwork = true,
                 ),
@@ -448,14 +488,14 @@ object Api {
                 if (!res.isSuccessful) return@run null
                 val obj = json.parseToJsonElement(res.text()).jsonObject
                 val tag = obj["tag_name"]?.jsonPrimitive?.contentOrNull ?: return@run null
-                val url = obj["html_url"]?.jsonPrimitive?.contentOrNull ?: "https://github.com/okeydw/SoundCloud-Android/releases"
+                val url = obj["html_url"]?.jsonPrimitive?.contentOrNull?.takeIf { it.startsWith("https://github.com/okeydw/$repo/releases/") } ?: "https://github.com/okeydw/$repo/releases"
                 val assets = (obj["assets"] as? kotlinx.serialization.json.JsonArray).orEmpty().mapNotNull { el ->
                     val a = el as? kotlinx.serialization.json.JsonObject ?: return@mapNotNull null
                     val name = a["name"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
                     val link = a["browser_download_url"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
                     val size = a["size"]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 0L
                     ApkAsset(name, link, size)
-                }.filter { it.name.endsWith(".apk", ignoreCase = true) }
+                }.filter { it.name.endsWith(if (ios) ".ipa" else ".apk", ignoreCase = true) && it.url.startsWith("https://github.com/okeydw/$repo/releases/download/") }
                 ReleaseInfo(tag, url, assets)
             }
         }.getOrNull()
@@ -725,7 +765,9 @@ object Api {
         artistUrn: String?,
         artworkUrl: String?,
         duration: Long,
+        session: String? = sessionId,
     ): Unit = withContext(IoDispatcher) {
+        require(!session.isNullOrBlank())
         val body = buildJsonObject {
             put("scTrackId", urn)
             put("title", title)
@@ -734,7 +776,8 @@ object Api {
             put("artworkUrl", artworkUrl)
             put("duration", duration)
         }.toString().let { HttpBody.json(it) }
-        Http.execute(HttpRequest("$API_BASE/history", "POST", sessionHeader(), body, discardBody = true))
+        val response = Http.execute(HttpRequest("$API_BASE/history", "POST", listOf("x-session-id" to session), body, discardBody = true))
+        if (!response.isSuccessful) throw ApiHttpException(response.code, "History update failed")
         Unit
     }
 

@@ -31,7 +31,7 @@ object Fonts {
     var mono by androidx.compose.runtime.mutableStateOf<FontFamily>(FontFamily.Monospace)
 }
 
-val Inter: FontFamily get() = Fonts.inter
+val Inter: FontFamily get() = ThemeFonts.family ?: Fonts.inter
 
 val Mono: FontFamily get() = Fonts.mono
 
@@ -169,7 +169,7 @@ data class Fx(val mode: FxMode) {
     val drift: Boolean get() = mode != FxMode.Light && mode != FxMode.Off
     val twinkle: Boolean get() = mode == FxMode.Max
     val pulse: Boolean get() = mode == FxMode.Max
-    val reflection: Boolean get() = mode == FxMode.Max
+    val reflection: Boolean get() = mode != FxMode.Off
     val idle: Boolean get() = mode != FxMode.Light && mode != FxMode.Off
     val stars: Boolean get() = mode != FxMode.Off
 }
@@ -254,7 +254,7 @@ fun GlassTheme(content: @Composable () -> Unit) {
         errorContainer = Color(0xFFFF5A5F).copy(alpha = 0.18f),
         onErrorContainer = palette.text,
     )
-    MaterialTheme(colorScheme = scheme, typography = remember(Fonts.inter) { Typography().inter() }) {
+    MaterialTheme(colorScheme = scheme, typography = remember(Inter) { Typography().inter() }) {
         CompositionLocalProvider(
             LocalGlass provides palette,
             LocalFx provides fx,

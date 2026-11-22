@@ -487,6 +487,8 @@ actual object Downloads {
 
     actual fun tracks(): List<Track> = synchronized(index) { index.values.toList() }.reversed()
 
+    internal actual fun savedTrack(urn: String): Track? = synchronized(index) { index[urn] }
+
     suspend fun download(track: Track): Boolean = withContext(Dispatchers.IO) {
         if (isDownloaded(track.urn) || track.urn in inProgress) {
             if (isDownloaded(track.urn)) queued = queued - track.urn
@@ -547,6 +549,7 @@ actual object Downloads {
                     "@${picked.substringAfter("://").substringBefore('/')}",
             )
             DownloadFailures.clear(track.urn)
+            WaveCache.prefetch(track.urn, track.waveform_url)
             runCatching { downloadArt(track) }
             synchronized(index) {
                 index[track.urn] = track

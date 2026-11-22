@@ -22,8 +22,10 @@ actual object Updater {
     actual var asset: ApkAsset? = null
     actual var state: UpdateState = UpdateState.Idle
     actual var progress: Float = 0f
-    actual fun pick(context: PlatformContext, assets: List<ApkAsset>): ApkAsset? = null
-    actual fun start(context: PlatformContext) {}
+    actual fun pick(context: PlatformContext, assets: List<ApkAsset>): ApkAsset? = assets.firstOrNull { it.name.endsWith(".ipa", true) }
+    actual fun start(context: PlatformContext) {
+        asset?.url?.let { openInBrowser(context, it) }
+    }
     actual fun cancel() {}
     actual fun install(context: PlatformContext) {}
 }

@@ -75,7 +75,11 @@ private fun installUi() {
     IosChrome.darkBars = { dark ->
         UIApplication.sharedApplication.setStatusBarStyle(if (dark) UIStatusBarStyleLightContent else UIStatusBarStyleDarkContent, animated = true)
     }
+    ThemeFonts.init()
     PlayerHub.player = player
+    Together.attachPlayer(player)
+    Together.notify = { Toasts.show(it) }
+    IosCar.start(player)
     IosWidgetBridge.start()
 }
 
@@ -83,7 +87,7 @@ private fun installUi() {
 private fun IosRoot() {
     CompositionLocalProvider(LocalQrCamera provides IosQrCamera) {
         Box(Modifier.fillMaxSize()) {
-            FullApp(player)
+            androidx.compose.runtime.key(Prefs.language) { FullApp(player) }
             ToastHost(Modifier.align(Alignment.BottomCenter))
         }
     }

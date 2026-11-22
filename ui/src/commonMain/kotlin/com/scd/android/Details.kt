@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -162,8 +163,9 @@ fun PlaylistDetail(playlist: Playlist, offline: Boolean) {
     }
 
     val aura = remember(tracks, p.accent) { auraColors(tracks, p.accent) }
-    val playable = tracks.filter(Playback::playable)
-    val whole: suspend () -> List<Track> = { Library.playlistAll(playlist.urn, offline) }
+    val ordered = tracks
+    val playable = ordered.filter(Playback::playable)
+    val whole: suspend () -> List<Track> = { collectTrackPages { Library.playlistPage(playlist.urn, it, fresh = false, offline = offline) } }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = dockContentPadding()) {
         item(key = "top") {
@@ -187,7 +189,7 @@ fun PlaylistDetail(playlist: Playlist, offline: Boolean) {
                     Spacer(Modifier.height(10.dp))
                     GradientText(title, GlassType.hero.copy(textAlign = TextAlign.Center), aura.ifEmpty { listOf(p.text, p.text) }.let { listOf(p.text) + it }, maxLines = 3)
                     Spacer(Modifier.height(6.dp))
-                    val owner = playlist.user?.username ?: if (own != null) Prefs.username else null
+                    val owner = playlist.user?.username ?: if (own != null && !own.savedAlbum) Prefs.username else null
                     Text(
                         listOfNotNull(owner, stringResource(Res.string.tracks_count, maxOf(tracks.size, own?.count ?: playlist.track_count))).joinToString(" · "),
                         style = GlassType.small,
@@ -205,10 +207,12 @@ fun PlaylistDetail(playlist: Playlist, offline: Boolean) {
                         WhiteButton(stringResource(Res.string.play_all), Res.drawable.ic_play, Modifier.weight(1f)) {
                             if (playable.isNotEmpty()) Playback.play(controller, playable, playable.first(), source = playlist.urn, more = whole)
                         }
-                        Spacer(Modifier.width(10.dp))
-                        val shuffled = Playback.shuffledFrom(playlist.urn)
-                        IconOrb(if (shuffled) Res.drawable.ic_shuffle_on else Res.drawable.ic_shuffle, stringResource(Res.string.notif_shuffle), size = 48.dp, active = shuffled) {
-                            Playback.toggleShuffle(controller, playlist.urn, playable, more = whole)
+                        if (!playlist.isAlbum && own?.savedAlbum != true) {
+                            Spacer(Modifier.width(10.dp))
+                            val shuffled = Playback.shuffledFrom(playlist.urn)
+                            IconOrb(if (shuffled) Res.drawable.ic_shuffle_on else Res.drawable.ic_shuffle, stringResource(Res.string.notif_shuffle), size = 48.dp, active = shuffled) {
+                                Playback.toggleShuffle(controller, playlist.urn, playable, more = whole)
+                            }
                         }
                         if (tracks.isNotEmpty() || filter.open) {
                             Spacer(Modifier.width(8.dp))
@@ -229,19 +233,26 @@ fun PlaylistDetail(playlist: Playlist, offline: Boolean) {
                                 active = liked,
                             ) { scope.launch { LikedPlaylists.toggle(playlist) } }
                         }
-                        if (!offline) {
+                        if (!offline && !playlist.isAlbum) {
                             Spacer(Modifier.width(8.dp))
                             DownloadAllOrb(playlist.urn, tracks, complete = !hasMore) {
-                                Downloads.enqueue(context, tracks, playlist.urn, title)
+                                Downloads.enqueue(context, whole(), playlist.urn, title)
                                 emptyList()
                             }
                         }
+                    }
+                    if (playlist.isAlbum || own?.savedAlbum == true) {
+                        Spacer(Modifier.height(10.dp))
+                        AlbumActions(own?.source ?: "album:${playlist.urn}", title, playlist.artwork_url,
+                            info = own?.albumInfo ?: SavedAlbumInfo(playlist.kind, playlist.user),
+                            onRemoved = { if (own?.savedAlbum == true) nav.pop() }, shuffled = Playback.shuffledFrom(playlist.urn),
+                            shuffle = { Playback.toggleShuffle(controller, playlist.urn, playable, more = whole) }, load = whole)
                     }
                 }
             }
             Spacer(Modifier.height(10.dp))
         }
-        val shown = if (filter.active) filterTracks(tracks, filter.query) else tracks
+        val shown = if (filter.active) filterTracks(ordered, filter.query) else ordered
         if (filter.open) {
             item(key = "search", contentType = "search") { LocalSearchField(filter, if (filter.active) shown.size else null) }
         }
@@ -405,7 +416,7 @@ fun TrackActionsSheet(track: Track, onDismiss: () -> Unit, onRemove: (() -> Unit
             Spacer(Modifier.width(14.dp))
             androidx.compose.foundation.text.selection.SelectionContainer(Modifier.weight(1f)) {
                 Column {
-                    Text(track.title, style = GlassType.rowTitle.copy(fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold), color = p.text)
+                    Text(track.displayTitle, style = GlassType.rowTitle.copy(fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold), color = p.text)
                     Text(track.user?.username ?: "", style = GlassType.small, color = p.text2)
                 }
             }
@@ -437,9 +448,16 @@ fun TrackActionsSheet(track: Track, onDismiss: () -> Unit, onRemove: (() -> Unit
         }
         SheetAction(Res.drawable.ic_plus, stringResource(Res.string.add_to_playlist)) { picking = true }
         val liked = Likes.isLiked(track.urn)
-        SheetAction(if (liked) Res.drawable.ic_heart_filled else Res.drawable.ic_heart, stringResource(if (liked) Res.string.notif_unlike else Res.string.notif_like)) {
+        if (!track.external) SheetAction(if (liked) Res.drawable.ic_heart_filled else Res.drawable.ic_heart, stringResource(if (liked) Res.string.notif_unlike else Res.string.notif_like)) {
             onDismiss()
             AppScope.scope.launch { Likes.toggle(track) }
+        }
+        rememberTrackAlbum(track)?.let { album ->
+            SheetAction(Res.drawable.ic_album, listOf(stringResource(Res.string.kind_album), album.title).filter { it.isNotBlank() }.joinToString(" · ")) {
+                onDismiss()
+                nav.player = false
+                nav.push(album.playlist?.let { Screen.PlaylistS(it) } ?: Screen.AlbumS(album.id))
+            }
         }
         track.catalogArtist?.let { ca ->
             if (!Prefs.offline) {
@@ -569,10 +587,10 @@ fun ArtistDetail(urn: String, offline: Boolean) {
                     Spacer(Modifier.height(10.dp))
                     GenreDots(tracks)
                     Spacer(Modifier.height(16.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
                         if (!offline) {
-                            WhiteButton(stringResource(Res.string.artist_wave), Res.drawable.ic_wave, Modifier.weight(1f)) {
-                                if (radioBusy) return@WhiteButton
+                            IconOrb(Res.drawable.ic_wave, stringResource(Res.string.artist_wave), size = 48.dp, iconSize = 22.dp) {
+                                if (radioBusy) return@IconOrb
                                 radioBusy = true
                                 scope.launch {
                                     val radio = runCatching { Playback.artistRadio(urn, tracks) }.getOrDefault(emptyList())
@@ -585,14 +603,14 @@ fun ArtistDetail(urn: String, offline: Boolean) {
                                 }
                             }
                         } else {
-                            WhiteButton(stringResource(Res.string.play_all), Res.drawable.ic_play, Modifier.weight(1f)) {
+                            IconOrb(Res.drawable.ic_play, stringResource(Res.string.play_all), size = 48.dp, iconSize = 22.dp) {
                                 val list = tracks.filter(Playback::playable)
                                 if (list.isNotEmpty()) Playback.play(controller, list, list.first(), source = "artist:$urn", more = { pager.all() })
                             }
                         }
                         Spacer(Modifier.width(10.dp))
                         val shuffled = Playback.shuffledFrom("artist:$urn")
-                        IconOrb(if (shuffled) Res.drawable.ic_shuffle_on else Res.drawable.ic_shuffle, stringResource(Res.string.notif_shuffle), size = 48.dp, active = shuffled) {
+                        IconOrb(if (shuffled) Res.drawable.ic_shuffle_on else Res.drawable.ic_shuffle, stringResource(Res.string.notif_shuffle), size = 48.dp, iconSize = 22.dp, active = shuffled) {
                             Playback.toggleShuffle(controller, "artist:$urn", tracks.filter(Playback::playable), more = { pager.all() })
                         }
                         a?.let { art ->
@@ -601,7 +619,7 @@ fun ArtistDetail(urn: String, offline: Boolean) {
                             IconOrb(
                                 if (liked) Res.drawable.ic_heart_filled else Res.drawable.ic_heart,
                                 stringResource(if (liked) Res.string.notif_unlike else Res.string.notif_like),
-                                size = 48.dp,
+                                size = 48.dp, iconSize = 22.dp,
                                 active = liked,
                             ) { LikedArtists.toggle(art) }
                         }
@@ -616,7 +634,7 @@ fun ArtistDetail(urn: String, offline: Boolean) {
                                 val following = Follows.isFollowing(urn) == true
                                 GlassChip(
                                     stringResource(if (following) Res.string.unfollow else Res.string.follow),
-                                    modifier = Modifier.heightIn(min = 48.dp),
+                                    modifier = Modifier.minimumInteractiveComponentSize().heightIn(min = 42.dp),
                                     icon = if (following) Res.drawable.ic_following else Res.drawable.ic_follow,
                                     active = following,
                                     onClick = {
@@ -626,19 +644,19 @@ fun ArtistDetail(urn: String, offline: Boolean) {
                                     },
                                 )
                             }
-                            catalog?.let { c ->
-                                GlassChip(stringResource(Res.string.catalog_card), modifier = Modifier.heightIn(min = 48.dp), icon = Res.drawable.ic_mic, onClick = { nav.push(Screen.CatalogS(c.id)) })
-                            }
-                            if (canBlock && scId != null) {
+                            if (canBlock) {
                                 val blocked = BlockedArtists.isBlocked("user", scId)
                                 GlassChip(
                                     stringResource(if (blocked) Res.string.unblock else Res.string.block),
-                                    modifier = Modifier.heightIn(min = 48.dp),
+                                    modifier = Modifier.minimumInteractiveComponentSize().heightIn(min = 42.dp),
                                     icon = Res.drawable.ic_block,
                                     iconTint = Color(0xFFFF5A5F),
                                     active = blocked,
                                     onClick = { if (blocked) scope.launch { BlockedArtists.unblock("user", scId) } else blocking = true },
                                 )
+                            }
+                            catalog?.let { c ->
+                                GlassChip(stringResource(Res.string.catalog_card), modifier = Modifier.minimumInteractiveComponentSize().heightIn(min = 42.dp), icon = Res.drawable.ic_mic, onClick = { nav.push(Screen.CatalogS(c.id)) })
                             }
                         }
                     }
@@ -681,7 +699,7 @@ fun ArtistDetail(urn: String, offline: Boolean) {
             }
         } else {
             trackItems(tracks, onPlay = { t -> Playback.play(controller, tracks, t, source = "artist:$urn", more = { pager.all() }) }, dimUndownloaded = offline)
-            if (pager.hasMore || pager.error != null) {
+            if (pager.hasMore || pager.error != null || pager.pending) {
                 item(key = "more") {
                     TrackPageFooter(pager)
                 }

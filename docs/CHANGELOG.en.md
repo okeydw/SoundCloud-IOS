@@ -1,3 +1,68 @@
+## [0.4.7] **Albums, per-track presets and a waveform in the widget**
+[Русский](../CHANGELOG.md)
+
+<h1>Added </h1>
+
+- You can now save albums and open a track’s album from the track itself
+
+    Saved albums are under Me → Playlists → Albums. Open an album to download the whole thing.
+
+- Save an EQ preset for a specific track
+
+    In the equalizer, tap “Save EQ for this track”. The preset remembers speed and pitch too.
+
+- Track sorting
+
+    In Me, you can also put your likes in any order by hand.
+
+- Set your own sleep timer, up to 1,440 minutes
+
+- The large widget now shows the track’s waveform
+
+    The waveform also shows how far through the track you are.
+
+- You can hide duplicate artist names in track titles. It’s on by default. Check Settings → Appearance
+
+    This also applies to history, lyrics and the Lock Screen.
+
+- Pick an output device with AirPlay from the player. In playback settings you can make one track fade out and the next fade in
+
+- SoundCloud Auto on iOS. Pick a playlist and an EQ preset for your Bluetooth device. To open the app when it’s closed, set up a Bluetooth automation in Shortcuts
+
+- In Storage you can set how much cache to keep and for how long, turn on automatic downloads for likes, and restore missing artwork
+
+- In Appearance you can set your own background image and change the font, language and app icon
+
+- Check for updates and copy diagnostics in About
+
+<h1>Changed </h1>
+
+- Reworked the cache 🖤
+
+    Likes and history show cached tracks right away. The rest load in the background.
+
+- The player can start streaming before the whole track downloads. With the EQ on or pitch adjusted manually, it plays from a file
+
+- Imports from Spotify, YouTube and Yandex Music now have their own section in Settings
+
+<h1>Fixed </h1>
+
+- Fixed downloaded HLS tracks freezing when you seek
+
+    If the whole track is there, the app repairs its seek index on your phone. Older downloads get checked automatically. To run it yourself, go to Storage → Check integrity.
+
+- Downloaded tracks show their cached waveform right away
+
+    If there’s no waveform yet, the app can build one from the file, even offline.
+
+- Listening history is saved on your phone and sent to the server when you’re back online
+
+- Changed how repeat-one starts the next play. The player now seeks to the beginning and waits for the seek to finish before it resumes
+
+**Something broke? - Issues are your friend**
+
+---
+
 ## [0.4.5] Bug fixes + more testing of track imports
 
 > The original [changelog in Russian](../CHANGELOG.md)

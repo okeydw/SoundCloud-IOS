@@ -8,6 +8,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.CancellationException
@@ -38,17 +39,42 @@ object IosWidgetBridge {
             return alt ?: bundle.objectForInfoDictionaryKey("SoundCloudAppGroup") as? String ?: DEFAULT_GROUP
         }
 
-    private data class Snapshot(val urn: String?, val title: String, val artist: String, val playing: Boolean, val art: String?, val accent: Int)
+    private data class Snapshot(val urn: String?, val title: String, val artist: String, val playing: Boolean, val art: String?, val accent: Int, val waveUrl: String?, val offline: Boolean,
+        val position: Long, val duration: Long, val rate: Float, val stamp: Long)
 
-    private fun snapshot() = Snapshot(NowPlaying.urn, NowPlaying.title, NowPlaying.artist, NowPlaying.isPlaying, NowPlaying.artworkUri, Prefs.accent)
+    private fun snapshot() = Snapshot(NowPlaying.urn, PlayerHub.player?.currentTrack?.displayTitle ?: formattedTrackTitle(NowPlaying.title, NowPlaying.artist), NowPlaying.artist, NowPlaying.isPlaying, NowPlaying.artworkUri, Prefs.accent,
+        NowPlaying.waveformUrl, Prefs.offline, NowPlaying.position, NowPlaying.duration, Prefs.playbackRate, nowMillis())
 
     @OptIn(FlowPreview::class)
     fun start() {
         if (started) return
         started = true
         scope.launch {
+            snapshotFlow {
+                val urn = NowPlaying.urn
+                Triple(urn, NowPlaying.waveformUrl, (Prefs.offline || Health.noInternet) to urn?.let(Downloads::isDownloaded))
+            }.collectLatest { (urn, url, _) ->
+                if (urn == null) return@collectLatest
+                val defaults = NSUserDefaults(suiteName = group)
+                WaveCache.display(urn, url).collect { samples ->
+                    if (NowPlaying.urn == urn) {
+                        defaults.setObject(waveBars(samples, 56).map { it.toDouble() }, forKey = "wave")
+                        defaults.setObject(urn, forKey = "waveUrn")
+                        reload()
+                    }
+                }
+            }
+        }
+        scope.launch {
+            var previous: Snapshot? = null
             snapshotFlow { snapshot() }
-                .distinctUntilChanged()
+                .filter { current ->
+                    val old = previous
+                    val changed = old == null || old.copy(position = current.position, stamp = current.stamp) != current ||
+                        kotlin.math.abs(current.position - old.position - (if (old.playing) (current.stamp - old.stamp) * old.rate else 0f)) > 3000
+                    if (changed) previous = current
+                    changed
+                }
                 .debounce(300)
                 .collectLatest { publish(it) }
         }
@@ -60,6 +86,10 @@ object IosWidgetBridge {
         defaults.setObject(s.artist, forKey = "artist")
         defaults.setBool(s.playing, forKey = "playing")
         defaults.setObject(s.urn ?: "", forKey = "urn")
+        defaults.setDouble(s.position.toDouble(), forKey = "position")
+        defaults.setDouble(s.duration.toDouble(), forKey = "duration")
+        defaults.setDouble(s.rate.toDouble(), forKey = "rate")
+        defaults.setDouble(s.stamp.toDouble() / 1000, forKey = "stamp")
         defaults.setObject(Strings.get("widget_idle"), forKey = "idle")
         defaults.setObject(Strings.get("widget_open"), forKey = "open")
         defaults.setInteger(s.accent.toLong() and 0xFFFFFFFFL, forKey = "accent")
@@ -114,6 +144,10 @@ object IosWidgetBridge {
     }
 
     fun command(name: String) {
+        if (Together.isGuest && name != "open") {
+            NowPlaying.openPlayerRequest = true
+            return
+        }
         val p = PlayerHub.player
         when (name) {
             "toggle" -> when {

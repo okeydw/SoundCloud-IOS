@@ -4,6 +4,8 @@ import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.usePinned
 import kotlinx.cinterop.useContents
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import platform.CoreGraphics.CGRectMake
 import platform.UIKit.*
 import platform.Foundation.NSData
@@ -33,8 +35,16 @@ object IosFiles {
         val picker = UIDocumentPickerViewController(documentTypes = listOf("public.item"), inMode = UIDocumentPickerMode.UIDocumentPickerModeImport)
         val d = PickerDelegate { url ->
             delegate = null
-            val data = NSData.dataWithContentsOfURL(url) ?: return@PickerDelegate
-            onPicked(data.toBytes(), url.lastPathComponent ?: "file")
+            val path = url.path ?: return@PickerDelegate
+            AppScope.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                val bytes = withContext(IoDispatcher) {
+                    val size = StreamFiles.sizeOf(path)
+                    if (size !in 1L..40L * 1024 * 1024) return@withContext null
+                    NSData.dataWithContentsOfURL(url)?.takeIf { it.length == size.toULong() }?.toBytes()
+                }
+                if (bytes != null) onPicked(bytes, url.lastPathComponent ?: "file")
+                else Toasts.show(Strings.get("theme_failed"))
+            }
         }
         delegate = d
         picker.delegate = d

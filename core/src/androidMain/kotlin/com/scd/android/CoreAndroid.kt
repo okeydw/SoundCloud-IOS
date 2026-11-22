@@ -14,6 +14,8 @@ fun Endpoints.init(context: Context) = init(AndroidKvStore(context, "endpoints")
 
 fun DurationCache.init(context: Context) = init(AndroidKvStore(context, "durations"))
 
+fun WaveCache.init(context: Context) = init(AndroidKvStore(context, "waveforms"))
+
 fun Likes.init(context: Context) {
     onLiked = { LikesAutoCache.onLiked(it) }
     init(AndroidKvStore(context, "liked_tracks"))

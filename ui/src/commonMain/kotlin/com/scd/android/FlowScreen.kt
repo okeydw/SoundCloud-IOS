@@ -255,7 +255,7 @@ private fun EstuaryDeck(onOpenWave: () -> Unit) {
     val head = resumed ?: wave.firstOrNull()
     val resumeAt = if (resumed != null) WaveState.lastPositionMs else 0L
     val urn = if (playingWave) NowPlaying.urn else head?.urn
-    val title = if (playingWave) NowPlaying.title else head?.title
+    val title = if (playingWave) formattedTrackTitle(NowPlaying.title, NowPlaying.artist) else head?.displayTitle
     val artist = if (playingWave) NowPlaying.artist else head?.user?.username
     val art: Any? = if (playingWave) NowPlaying.artworkUri else head?.artModel("t250x250")
     val genre = (if (playingWave) NowPlaying.genre else head?.genre)?.takeIf { it.isNotBlank() }

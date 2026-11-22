@@ -51,6 +51,8 @@ fun Track.toMediaItem(): MediaItem {
                 }
                 .setExtras(
                     Bundle().apply {
+                        val artists = creditedArtists().map { it.name }
+                        if (artists.isNotEmpty()) putStringArrayList("credited_artists", ArrayList(artists))
                         putString("artist_urn", user?.urn)
                         putString("artwork_url", artwork_url)
                         putString("waveform_url", waveform_url)
@@ -64,6 +66,9 @@ fun Track.toMediaItem(): MediaItem {
         )
         .build()
 }
+
+val MediaMetadata.formattedTitle: String
+    get() = formattedTrackTitle(title?.toString().orEmpty(), artist?.toString().orEmpty(), extras?.getStringArrayList("credited_artists").orEmpty())
 
 fun MediaItem.toTrackOrNull(): Track? {
     if (mediaId.isEmpty()) return null

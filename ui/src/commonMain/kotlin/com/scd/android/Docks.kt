@@ -173,30 +173,32 @@ fun LiquidPillDock(
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(md.title, style = GlassType.rowTitle, color = p.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(md.displayTitle, style = GlassType.rowTitle, color = p.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(md.artistLinks().joinToString(", ") { it.name }, style = GlassType.small, color = p.text2, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
-            val liked = Likes.isLiked(urn)
-            Box(
-                Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .pressable {
-                        controller?.currentTrack?.let { t -> scope.launch { Likes.toggle(t) } }
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    painterResource(if (liked) Res.drawable.ic_heart_filled else Res.drawable.ic_heart),
-                    stringResource(if (liked) Res.string.notif_unlike else Res.string.notif_like),
-                    tint = if (liked) p.accent else p.text2,
-                    modifier = Modifier.size(22.dp),
-                )
+            if (isScUrn(urn)) {
+                val liked = Likes.isLiked(urn)
+                Box(
+                    Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .pressable {
+                            controller?.currentTrack?.let { t -> scope.launch { Likes.toggle(t) } }
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painterResource(if (liked) Res.drawable.ic_heart_filled else Res.drawable.ic_heart),
+                        stringResource(if (liked) Res.string.notif_unlike else Res.string.notif_like),
+                        tint = if (liked) p.accent else p.text2,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
             }
             Spacer(Modifier.width(6.dp))
-            PlayOrb(playing, 46.dp) { controller?.let { if (it.isPlaying) it.pause() else it.play() } }
+            PlayOrb(playing, 46.dp, enabled = !Together.isGuest) { controller?.let { if (it.isPlaying) it.pause() else it.play() } }
         }
         Box(
             Modifier
@@ -291,7 +293,7 @@ internal fun PeekLine(md: Track, modifier: Modifier) {
     val p = LocalGlass.current
     Column(modifier) {
         Text(
-            md.title,
+            md.displayTitle,
             style = GlassType.rowTitle,
             color = p.text,
             maxLines = 1,

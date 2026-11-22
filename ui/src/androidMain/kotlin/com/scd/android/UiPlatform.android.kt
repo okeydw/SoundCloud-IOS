@@ -9,6 +9,9 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ProvidableCompositionLocal
@@ -41,6 +44,9 @@ import kotlinx.coroutines.withContext
 actual val LocalAppContext: ProvidableCompositionLocal<PlatformContext> = LocalContext
 
 @Composable
+actual fun PlatformOutputDialog(onDismiss: () -> Unit) = AudioOutputDialog(onDismiss)
+
+@Composable
 actual fun PlatformBackHandler(enabled: Boolean, onBack: () -> Unit) = BackHandler(enabled = enabled, onBack = onBack)
 
 @Composable
@@ -59,9 +65,12 @@ actual fun platformPainter(icon: Any): Painter = androidx.compose.ui.res.painter
 @Composable
 actual fun rememberArtColor(model: Any?): Color? {
     val context = LocalContext.current
-    var color by remember(model) { mutableStateOf<Color?>(null) }
-    LaunchedEffect(model) {
-        if (model == null) return@LaunchedEffect
+    var color by remember { mutableStateOf<Color?>(null) }
+    LaunchedEffect(model, context) {
+        if (model == null) {
+            color = null
+            return@LaunchedEffect
+        }
         color = runCatching {
             val request = ImageRequest.Builder(context).data(model).allowHardware(false).size(96).build()
             val image = (SingletonImageLoader.get(context).execute(request) as? SuccessResult)?.image ?: return@runCatching null
@@ -71,9 +80,14 @@ actual fun rememberArtColor(model: Any?): Color? {
                 val swatch = palette.vibrantSwatch ?: palette.lightVibrantSwatch ?: palette.dominantSwatch
                 swatch?.rgb?.let { Color(it) }
             }
-        }.getOrNull()
+        }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }.getOrNull()
     }
-    return color
+    val tint by animateColorAsState(
+        targetValue = color ?: LocalGlass.current.accent,
+        animationSpec = tween(650, easing = FastOutSlowInEasing),
+        label = "artwork tint",
+    )
+    return tint
 }
 
 actual fun Modifier.softShadow(shape: Shape, radius: Dp, color: Color, offsetY: Dp): Modifier =

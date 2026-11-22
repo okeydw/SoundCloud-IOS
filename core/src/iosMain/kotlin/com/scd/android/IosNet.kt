@@ -16,14 +16,25 @@ object IosNet {
     var metered: Boolean = false
         private set
 
+    @Volatile
+    var connected = true
+        private set
+
     private var monitor: Any? = null
 
     fun start() {
         if (monitor != null) return
         val m = nw_path_monitor_create()
         nw_path_monitor_set_update_handler(m) { path ->
-            if (path != null && nw_path_get_status(path) == nw_path_status_satisfied) ScAnon.onNetworkChanged()
+            connected = path != null && nw_path_get_status(path) == nw_path_status_satisfied
+            Health.kick()
+            if (connected) {
+                ScAnon.onNetworkChanged()
+                HistoryOutbox.kick()
+            }
+            val wasMetered = metered
             metered = path != null && (nw_path_is_expensive(path) || nw_path_is_constrained(path))
+            if (wasMetered && !metered && path != null && nw_path_get_status(path) == nw_path_status_satisfied) IosLikesAutoCache.run()
         }
         nw_path_monitor_set_queue(m, dispatch_get_main_queue())
         nw_path_monitor_start(m)

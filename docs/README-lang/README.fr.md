@@ -67,7 +67,7 @@ Va sur la [page des versions](https://github.com/okeydw/SoundCloud-iOS/releases/
 
 **Installation :** guide pas à pas [ici](https://docs.getsoundcloud.app/install/ios).
 
-**Pas encore sur iOS :** import, égaliseur, SoundCloud Auto, choix de la sortie audio et mises à jour depuis l'application.
+**Pas encore sur iOS :** import, SoundCloud Auto, choix de la sortie audio et mises à jour depuis l'application.
 
 ---
 
@@ -105,14 +105,19 @@ Vient ensuite la connexion, via SoundCloud ou avec un QR code depuis la version 
 
 - **Vague et recommandations** - notre propre système de recommandations basé sur tes likes et ton historique d'écoute
 - **Recherche** - titres, artistes, playlists, albums et recherche par ambiance (un réseau neuronal choisit les titres selon le contexte)
-- **Lecteur** - lecture aléatoire, répétition, file d'attente, paroles, likes et dislikes
+- **Lecteur** - lecture aléatoire, répétition, file d'attente, paroles, likes et dislikes. Touche le nom de l’artiste dans le lecteur déplié pour ouvrir son profil. Dans les listes, toucher le nom lance le titre.
+- **Égaliseur** - préréglages prêts à l'emploi et possibilité de créer le tien
+- **Vitesse et hauteur** - conserve la hauteur en changeant la vitesse, laisse-la suivre la vitesse ou règle-la indépendamment en demi-tons. Ces commandes se trouvent dans les réglages de l’égaliseur.
+- **Images personnelles** - choisis, remplace ou supprime un fond depuis Photos, puis règle le flou et l’assombrissement dans les paramètres d’apparence. La pochette d’une playlist peut être changée depuis son menu.
 - **Playlists** - tes propres playlists locales synchronisées avec SoundCloud, publiques ou privées, l'ordre des titres se change par glisser-déposer et reste enregistré
+- **Tri et ordre des favoris** - une icône compacte au-dessus des titres dans « Moi » : titre, artiste, durée et autres champs. « Modifier l’ordre » permet de déplacer les favoris manuellement ; cet ordre est enregistré sur l’appareil et utilisé pour la lecture. Les playlists n’ont pas de commande de tri.
 - **Historique et statistiques** - temps d'écoute, top titres et artistes, graphiques par jour et par heure
 - **Profils** - s'abonner et se désabonner, liens du profil SoundCloud
 
 ### Mode hors ligne
 
 - Téléchargement de titres et de playlists, mode hors ligne avec cache
+- **Réparation HLS** - les titres enregistrés sont vérifiés avant la lecture. Lance une vérification des téléchargements et du cache dans Paramètres → Stockage → Vérifier l’intégrité. Les téléchargements endommagés sont réparés ou retéléchargés avec une connexion ; le cache incomplet est supprimé puis rechargé à la lecture. Le titre en cours est ignoré et le résultat indique les fichiers restants.
 
 ---
 
@@ -150,7 +155,7 @@ La liste complète des changements se trouve dans [CHANGELOG.md](../../CHANGELOG
 **Compilation :** macOS, Xcode, JDK 17, [XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
 ```bash
-./gradlew :core:compileKotlinIosArm64 :ui:compileKotlinIosArm64   # le code commun compile pour iOS
+./gradlew :core:compileKotlinIosArm64 :ui:compileKotlinIosArm64# le code commun compile pour iOS
 cd iosApp && xcodegen generate                                    # projet Xcode depuis project.yml
 open SoundCloud.xcodeproj                                         # le framework Kotlin se compile tout seul
 ```

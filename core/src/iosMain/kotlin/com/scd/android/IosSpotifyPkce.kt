@@ -30,7 +30,7 @@ object SpotifyPkce {
     private fun randomBytes(size: Int): ByteArray {
         val out = ByteArray(size)
         val ok = out.usePinned { SecRandomCopyBytes(kSecRandomDefault, size.convert(), it.addressOf(0)) } == 0
-        if (!ok) kotlin.random.Random.nextBytes(out)
+        check(ok) { "Secure random unavailable" }
         return out
     }
 
@@ -59,14 +59,15 @@ object SpotifyPkce {
 
     suspend fun complete(url: String): Boolean {
         val (verifier, state) = Prefs.spotifyPkce()
-        Prefs.setSpotifyPkce("", "")
         val query = WebUrl.parse(url)?.query().orEmpty()
+        if (verifier.isEmpty() || state.isEmpty() || query["state"] != state) return false
+        Prefs.setSpotifyPkce("", "")
         query["error"]?.let {
             Logs.add("import", "spotify login refused: ${it.take(60)}")
             return false
         }
         val code = query["code"]
-        if (code.isNullOrEmpty() || verifier.isEmpty() || query["state"] != state) {
+        if (code.isNullOrEmpty()) {
             Logs.add("import", "spotify login: bad callback")
             return false
         }

@@ -223,24 +223,6 @@ internal fun IosImportScreen(onSpotify: () -> Unit, onYouTube: () -> Unit, onYan
     var download by remember { mutableStateOf(true) }
     val kind = Importer.detect(link)
     val busy = Importer.busy
-    var spotifyLogin by remember { mutableStateOf(false) }
-    var pendingSpotify by remember { mutableStateOf<String?>(null) }
-    if (spotifyLogin) {
-        SpotifyLoginDialog(
-            refresh = true,
-            onDismiss = {
-                spotifyLogin = false
-                pendingSpotify?.let { Importer.spotify(context, it, asPlaylist, download) }
-                pendingSpotify = null
-            },
-        ) { t, until ->
-            Prefs.changeSpotifyToken(t, until)
-            spotifyLogin = false
-            pendingSpotify?.let { Importer.spotify(context, it, asPlaylist, download) }
-            pendingSpotify = null
-        }
-    }
-
     Panel {
         Title(stringResource(Res.string.import_link_title))
         Hint(stringResource(Res.string.import_link_hint))
@@ -287,14 +269,7 @@ internal fun IosImportScreen(onSpotify: () -> Unit, onYouTube: () -> Unit, onYan
         WideButton(stringResource(Res.string.import_start), enabled = kind != null && !busy) {
             when (kind) {
                 Importer.YOUTUBE -> Importer.youtube(context, link, asPlaylist, ytSimilar, download)
-                Importer.SPOTIFY -> {
-                    if (Prefs.spotifyLinked && Prefs.spotifyTokenOrNull() == null && Prefs.spotifyRefresh.isEmpty()) {
-                        pendingSpotify = link
-                        spotifyLogin = true
-                    } else {
-                        Importer.spotify(context, link, asPlaylist, download)
-                    }
-                }
+                Importer.SPOTIFY -> Importer.spotify(context, link, asPlaylist, download)
                 Importer.YANDEX -> Importer.yandex(context, link, Prefs.ymToken.ifBlank { null }, asPlaylist, download)
             }
         }
@@ -330,30 +305,11 @@ internal fun IosImportScreen(onSpotify: () -> Unit, onYouTube: () -> Unit, onYan
 @Composable
 internal fun IosSpotifyAccount() {
     val context = LocalAppContext.current
-    val scope = rememberCoroutineScope()
     val busy = Importer.busy
     val linked = Prefs.spotifyLinked
     var download by remember { mutableStateOf(true) }
     var clientId by remember { mutableStateOf(Prefs.spotifyClientId) }
-    var webLogin by remember { mutableStateOf<String?>(null) }
-    var pendingLikes by remember { mutableStateOf(false) }
-    val doneText = stringResource(Res.string.import_sp_login_done)
-
     LaunchedEffect(linked) { if (linked) ExternalAccounts.refreshSpotify() }
-
-    webLogin?.let { mode ->
-        SpotifyLoginDialog(refresh = mode == "refresh", onDismiss = {
-            webLogin = null
-            pendingLikes = false
-        }) { t, until ->
-            Prefs.changeSpotifyToken(t, until)
-            webLogin = null
-            showToast(context, doneText)
-            if (pendingLikes) Importer.spotifyLikes(context, download)
-            pendingLikes = false
-            scope.launch { ExternalAccounts.refreshSpotify() }
-        }
-    }
 
     Panel {
         if (linked) AccountCard(ExternalAccounts.spotify) else Hint(stringResource(Res.string.import_sp_hint))
@@ -370,29 +326,26 @@ internal fun IosSpotifyAccount() {
         )
         val valid = ExternalAccounts.clientIdValid(clientId)
         when {
-            clientId.isBlank() -> Hint(stringResource(Res.string.import_sp_client_hint))
+            clientId.isBlank() -> Hint(stringResource(Res.string.ios_spotify_client))
             clientId == ExternalAccounts.spotifyRejectedClient -> ErrorText(stringResource(Res.string.import_sp_client_rejected))
             !valid -> ErrorText(stringResource(Res.string.import_sp_client_bad))
             else -> Hint("Redirect URI: ${SpotifyPkce.REDIRECT}")
         }
         LinkText(stringResource(Res.string.import_sp_dashboard)) { openInBrowser(context, "https://developer.spotify.com/dashboard") }
-        if (!linked) {
-            WideButton(stringResource(if (valid) Res.string.import_sp_authorize else Res.string.import_sp_login), enabled = !busy) {
-                val url = if (valid) SpotifyPkce.authorizeUrl() else null
-                if (url != null) openInBrowser(context, url) else webLogin = "login"
+        val needsLogin = !linked || Prefs.spotifyTokenOrNull() == null && Prefs.spotifyRefresh.isEmpty()
+        if (needsLogin) {
+            WideButton(stringResource(Res.string.import_sp_authorize), enabled = !busy && valid) {
+                SpotifyPkce.authorizeUrl()?.let { openInBrowser(context, it) }
             }
-        } else {
+        }
+        if (linked) {
             Toggle(stringResource(Res.string.import_download_all), "", download) { download = it }
-            WideButton(stringResource(Res.string.import_sp_likes), enabled = !busy) {
-                if (Prefs.spotifyTokenOrNull() == null && Prefs.spotifyRefresh.isEmpty()) {
-                    pendingLikes = true
-                    webLogin = "refresh"
-                } else {
-                    Importer.spotifyLikes(context, download)
-                }
+            WideButton(stringResource(Res.string.import_sp_likes), enabled = !busy && !needsLogin) {
+                Importer.spotifyLikes(context, download)
             }
             WideButton(stringResource(Res.string.import_acc_forget), enabled = !busy, primary = false) {
-                SpotifyAuth.forget()
+                Prefs.changeSpotifyToken("", 0L)
+                Prefs.changeSpotifyRefresh("")
                 ExternalAccounts.forget(ExternalAccounts.SPOTIFY)
             }
         }
@@ -402,32 +355,19 @@ internal fun IosSpotifyAccount() {
 }
 
 @Composable
-internal fun IosYouTubeAccount() {
+internal fun IosYouTubeAccount(onImport: () -> Unit) {
     val context = LocalAppContext.current
-    val scope = rememberCoroutineScope()
     val busy = Importer.busy
     val linked = Prefs.ytCookies.isNotBlank()
     var download by remember { mutableStateOf(true) }
     var likesSimilar by remember { mutableStateOf(true) }
-    var googleLogin by remember { mutableStateOf(false) }
-    val doneText = stringResource(Res.string.import_g_login_done)
-
     LaunchedEffect(linked) { if (linked) ExternalAccounts.refreshYoutube() }
-
-    if (googleLogin) {
-        GoogleLoginDialog(onDismiss = { googleLogin = false }) { cookie ->
-            Prefs.changeYtCookies(cookie)
-            googleLogin = false
-            showToast(context, doneText)
-            scope.launch { ExternalAccounts.refreshYoutube() }
-        }
-    }
 
     Panel {
         GuideLink("youtube")
         if (!linked) {
-            Hint(stringResource(Res.string.import_g_hint))
-            WideButton(stringResource(Res.string.import_acc_add), enabled = !busy) { googleLogin = true }
+            Hint(stringResource(Res.string.ios_youtube_public))
+            WideButton(stringResource(Res.string.import_link_title), enabled = !busy, onClick = onImport)
         } else {
             AccountCard(ExternalAccounts.youtube)
             Label(stringResource(Res.string.import_yt_mode))
@@ -443,7 +383,7 @@ internal fun IosYouTubeAccount() {
                 Importer.youtube(context, YouTubeImport.LIKES_URL, asPlaylist = true, similar = likesSimilar, download = download)
             }
             WideButton(stringResource(Res.string.import_acc_forget), enabled = !busy, primary = false) {
-                GoogleAuth.forget()
+                WebLoginSheet.forgetSites("youtube.com", "google.com")
                 Prefs.changeYtCookies("")
                 ExternalAccounts.forget(ExternalAccounts.YOUTUBE)
             }
@@ -478,8 +418,8 @@ internal fun IosYandexAccount() {
         rejected = false
         scope.launch {
             when (ExternalAccounts.checkYandex(t)) {
-                false -> rejected = true
-                else -> {
+                false, null -> rejected = true
+                true -> {
                     Prefs.changeYmToken(t)
                     token = ""
                     awaitingYandex = false

@@ -22,6 +22,7 @@ class HttpRequest(
     val forceNetwork: Boolean = false,
     val queued: Boolean = false,
     val discardBody: Boolean = false,
+    val cacheOnly: Boolean = false,
 )
 
 class HttpResponse(
