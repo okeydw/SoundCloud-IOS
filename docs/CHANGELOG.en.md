@@ -47,6 +47,8 @@
 
 <h1>Fixed </h1>
 
+- Build 15 fixes a crash when opening the app on iPhone
+
 - Fixed downloaded HLS tracks freezing when you seek
 
     If the whole track is there, the app repairs its seek index on your phone. Older downloads get checked automatically. To run it yourself, go to Storage → Check integrity.

@@ -20,6 +20,9 @@ kotlin {
             api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
             api("org.jetbrains.kotlinx:kotlinx-io-core:0.6.0")
         }
+        commonTest.dependencies {
+            implementation(kotlin("test"))
+        }
         androidUnitTest.dependencies {
             implementation("junit:junit:4.13.2")
         }

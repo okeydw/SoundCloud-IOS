@@ -6,7 +6,7 @@ options:
 settings:
   base:
     MARKETING_VERSION: "0.4.7"
-    CURRENT_PROJECT_VERSION: "14"
+    CURRENT_PROJECT_VERSION: "15"
 targets:
   SoundCloud:
     type: application

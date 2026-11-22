@@ -7,7 +7,8 @@ private val repeatedSpace = Regex(""" {2,}""")
 private val featureSuffix = Regex("""\s+(?:feat(?:uring)?|ft)\.?\s+""", RegexOption.IGNORE_CASE)
 private val creditBrackets = Regex("""\(([^()]*)\)|\[([^\[\]]*)\]""")
 private val trackNumber = Regex("""^\d{1,3}[.)]\s*""")
-private val artistHandle = Regex("""[\p{L}\p{N}][\p{L}\p{N}_.'’\-]*""")
+private const val artistLettersAndNumbers = """\p{L}\p{Nd}\p{Nl}\p{No}"""
+private val artistHandle = Regex("""[$artistLettersAndNumbers][${artistLettersAndNumbers}_.'’\-]*""")
 
 private val verifiedLineups = listOf(
     listOf("Psychosis", "INXWERTG"),
